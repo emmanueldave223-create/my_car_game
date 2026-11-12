@@ -1,0 +1,3074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Road Dash 3D: Apex Pursuit</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #050811;
+      font-family: 'Inter', sans-serif; color: #f8fafc;
+    }
+    .font-racing { font-family: 'Orbitron', sans-serif; }
+    #game-container { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .glass {
+      background: rgba(9, 14, 28, 0.84);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+    .glass-light {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
+      box-shadow: 0 8px 24px rgba(239, 68, 68, 0.38);
+      transition: transform 0.14s ease, filter 0.14s ease;
+    }
+    .btn-primary:hover { transform: translateY(-1px); filter: brightness(1.08); }
+    .btn-primary:active { transform: translateY(1px); }
+    .btn-secondary {
+      background: rgba(30, 41, 59, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      transition: all 0.14s ease;
+    }
+    .btn-secondary:hover { background: rgba(51, 65, 85, 0.96); border-color: rgba(248, 250, 252, 0.45); }
+
+    @keyframes sirenFlashIntense {
+      0%, 100% { box-shadow: inset 0 0 68px rgba(239, 68, 68, 0.48), inset 0 0 22px rgba(239, 68, 68, 0.65); }
+      50% { box-shadow: inset 0 0 68px rgba(59, 130, 246, 0.48), inset 0 0 22px rgba(59, 130, 246, 0.65); }
+    }
+    .pursuit-vignette-close { animation: sirenFlashIntense 0.45s infinite; }
+
+    /* Speed Lines Overlay during Nitro Boost */
+    .speed-lines-overlay {
+      background: radial-gradient(circle at center, transparent 52%, rgba(56, 189, 248, 0.18) 88%, rgba(255, 255, 255, 0.32) 100%);
+      transition: opacity 0.15s ease;
+    }
+
+    input[type="range"] {
+      accent-color: #f97316;
+      cursor: pointer;
+    }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 999px; }
+  </style>
+</head>
+<body>
+
+  <!-- 3D WebGL Viewport -->
+  <div id="game-container"></div>
+
+  <!-- Siren Edge Vignette (Pulses intensely when a Police Cruiser is within 30m!) -->
+  <div id="siren-overlay" class="fixed inset-0 z-10 pointer-events-none hidden pursuit-vignette-close"></div>
+
+  <!-- Nitro Speed Lines Edge Vignette -->
+  <div id="nitro-overlay" class="fixed inset-0 z-10 pointer-events-none opacity-0 speed-lines-overlay"></div>
+
+  <!-- Toast Alert Banner -->
+  <div id="toast-banner" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-opacity duration-300">
+    <div id="toast-text" class="glass px-5 py-2.5 rounded-full text-xs sm:text-sm font-bold text-amber-300 shadow-2xl border border-amber-400/40">
+      Alert
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TOP PERSISTENT HUD BAR (WITH LIVE STEERING SENSITIVITY SLIDER)         -->
+  <!-- ===================================================================== -->
+  <div class="fixed top-3 left-3 right-3 z-30 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <div class="flex items-center gap-2 pointer-events-auto">
+      <div class="glass px-3.5 py-2 rounded-xl flex items-center gap-2.5 shadow-lg">
+        <span class="w-2.5 h-2.5 rounded-full bg-orange-500 animate-ping"></span>
+        <span class="font-racing font-black tracking-wider text-xs sm:text-base bg-gradient-to-r from-orange-400 to-rose-400 bg-clip-text text-transparent">
+          ROAD DASH 3D
+        </span>
+        <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">APEX PURSUIT</span>
+      </div>
+
+      <div id="network-badge" class="glass px-2.5 py-2 rounded-xl flex items-center gap-1.5 text-xs font-semibold shadow-lg">
+        <span id="network-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span id="network-label">ONLINE</span>
+      </div>
+
+      <!-- Persistent Career Odometer -->
+      <div class="hidden xl:flex glass px-3 py-2 rounded-xl items-center gap-2 text-xs font-racing">
+        <span class="text-slate-400">ODO:</span>
+        <span id="top-career-odo" class="text-amber-300 font-bold">0.0 KM</span>
+      </div>
+    </div>
+
+    <!-- Right Controls: Live Steering Sensitivity Slider + Units + Lights + Audio + Pause/Garage -->
+    <div class="flex flex-wrap items-center gap-1.5 sm:gap-2 pointer-events-auto">
+      <!-- Steering Sensitivity Live Slider (0.5x to 2.0x) -->
+      <div class="glass px-3 py-1.5 rounded-xl flex items-center gap-2 text-[11px]" title="Adjust Lane Transition & Steering Responsiveness">
+        <span class="text-slate-300 font-semibold hidden sm:inline">Steer:</span>
+        <input id="top-steer-slider" type="range" min="0.5" max="2.0" step="0.1" value="1.1" class="w-16 sm:w-20 h-1.5 bg-slate-700 rounded-lg" />
+        <span id="top-steer-val" class="font-racing font-bold text-orange-400 w-8 text-right">1.1x</span>
+      </div>
+
+      <button id="btn-unit-toggle" class="glass hover:bg-slate-800/90 px-2.5 py-2 rounded-xl text-xs font-racing font-bold text-slate-200 transition">
+        KM/H
+      </button>
+      <button id="btn-headlights" class="glass hover:bg-slate-800/90 px-2.5 py-2 rounded-xl text-xs font-semibold text-amber-300 flex items-center gap-1 transition" title="Headlights (H)">
+        <span>💡</span><span class="hidden md:inline">Beams</span>
+      </button>
+      <button id="btn-audio" class="glass hover:bg-slate-800/90 px-2.5 py-2 rounded-xl text-xs font-semibold text-sky-300 flex items-center gap-1 transition">
+        <span id="audio-icon">🔊</span><span class="hidden md:inline" id="audio-label">Audio</span>
+      </button>
+      <button id="btn-pause-race" class="glass hover:bg-slate-800/90 px-2.5 py-2 rounded-xl text-xs font-bold text-slate-200 border border-white/15 transition hidden" title="Pause (ESC / P)">
+        ⏸ Pause
+      </button>
+      <button id="btn-open-menu" class="glass hover:bg-slate-800/90 px-3 py-2 rounded-xl text-xs font-bold text-orange-300 border border-orange-400/30 transition hidden">
+        🏎️ Garage
+      </button>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- PAUSE MODAL (WITH STEERING SENSITIVITY & QUICK CONTROLS)              -->
+  <!-- ===================================================================== -->
+  <div id="pause-modal" class="fixed inset-0 z-30 hidden items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md">
+    <div class="glass w-full max-w-md rounded-3xl p-6 text-center border border-white/15 shadow-2xl space-y-4">
+      <div class="font-racing text-2xl font-black text-white">RACE PAUSED</div>
+      <p class="text-xs text-slate-300">Fine-tune your handling or jump back into the pursuit.</p>
+
+      <div class="glass-light rounded-2xl p-4 text-left space-y-2">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold text-slate-200">Steering Sensitivity</span>
+          <span id="pause-steer-val" class="font-racing font-bold text-orange-400">1.1x</span>
+        </div>
+        <input id="pause-steer-slider" type="range" min="0.5" max="2.0" step="0.1" value="1.1" class="w-full h-2 bg-slate-700 rounded-lg" />
+        <div class="flex justify-between text-[10px] text-slate-400">
+          <span>0.5x Smooth Cruise</span>
+          <span>1.2x Balanced</span>
+          <span>2.0x Razor Sharp</span>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2.5 pt-2">
+        <button id="btn-resume-race" class="btn-primary flex-1 py-3 rounded-xl font-racing text-xs font-bold text-white cursor-pointer">
+          ▶ RESUME RACE
+        </button>
+        <button id="btn-pause-garage" class="btn-secondary flex-1 py-3 rounded-xl font-racing text-xs font-bold text-white cursor-pointer">
+          🏎️ RETURN TO GARAGE
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- LIVE 3D SHOWROOM GARAGE & CUSTOMIZATION OVERLAY                       -->
+  <!-- ===================================================================== -->
+  <div id="main-menu" class="fixed inset-0 z-20 flex flex-col justify-between p-3 sm:p-5 pt-16 sm:pt-16 pointer-events-none overflow-y-auto">
+    
+    <!-- Top Floating Driver Profile & Showroom Camera Hint (Leaves center clear to admire the 3D Car!) -->
+    <div class="w-full max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-3 pointer-events-auto">
+      <div class="glass rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3 shadow-xl">
+        <div class="flex items-center gap-2.5">
+          <div id="avatar-preview-badge" class="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-rose-600 flex items-center justify-center text-lg shadow-inner border border-white/20">
+            🪖
+          </div>
+          <div>
+            <div class="text-[9px] text-slate-400 uppercase font-bold">Driver Callsign</div>
+            <input id="driver-name-input" type="text" maxlength="16" value="ApexRacer"
+              class="bg-slate-900/90 border border-white/15 rounded-lg px-2 py-1 text-xs font-bold text-white focus:outline-none focus:border-orange-400 w-28" />
+          </div>
+        </div>
+
+        <div class="border-l border-white/10 pl-3">
+          <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Cockpit Helmet</div>
+          <select id="avatar-select" class="bg-slate-900/90 border border-white/15 rounded-lg px-2 py-1 text-xs font-semibold text-white focus:outline-none focus:border-orange-400">
+            <option value="carbon">Carbon Stealth Visor</option>
+            <option value="cyber">Neon Cyber Visor</option>
+            <option value="gold">Gold Chrome Helmet</option>
+            <option value="street">Street Shades</option>
+            <option value="classic">Classic Open-Face</option>
+          </select>
+        </div>
+
+        <div class="border-l border-white/10 pl-3">
+          <div class="text-[9px] text-slate-400 uppercase font-bold mb-1">Racing Suit</div>
+          <div class="flex items-center gap-1.5" id="suit-swatches">
+            <button data-suit="#ef4444" class="w-4 h-4 rounded-full bg-red-500 ring-2 ring-white"></button>
+            <button data-suit="#3b82f6" class="w-4 h-4 rounded-full bg-blue-500 opacity-75"></button>
+            <button data-suit="#f59e0b" class="w-4 h-4 rounded-full bg-amber-500 opacity-75"></button>
+            <button data-suit="#10b981" class="w-4 h-4 rounded-full bg-emerald-500 opacity-75"></button>
+            <button data-suit="#f8fafc" class="w-4 h-4 rounded-full bg-slate-100 opacity-75"></button>
+          </div>
+        </div>
+
+        <div class="border-l border-white/10 pl-3">
+          <div class="text-[9px] text-slate-400 uppercase font-bold">Career Odometer</div>
+          <div id="menu-career-odo" class="font-racing text-sm font-black text-amber-400">0.0 KM</div>
+        </div>
+      </div>
+
+      <!-- Selected Car Live Telemetry Spec Card -->
+      <div class="glass rounded-2xl px-4 py-3 flex items-center gap-4 shadow-xl">
+        <div>
+          <div class="text-[9px] font-bold uppercase tracking-widest text-orange-400">Selected Machine</div>
+          <div id="showroom-car-title" class="font-racing text-base sm:text-lg font-black text-white">BUGATTI CHIRON W16</div>
+          <div id="showroom-car-desc" class="text-[11px] text-slate-300">Quad-Turbo W16 • Active Hydraulic Wing • 420 KM/H</div>
+        </div>
+        <div class="hidden sm:block text-right border-l border-white/10 pl-4">
+          <div class="text-[10px] text-slate-400">Drag mouse / touch on car</div>
+          <div class="text-[11px] font-semibold text-sky-300">360° Showroom Turntable</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Floating Dock: 7-Car Roster, Rims, Underglow, Paint Finish & Launch -->
+    <div class="w-full max-w-7xl mx-auto glass rounded-3xl p-4 sm:p-5 shadow-2xl border border-white/15 pointer-events-auto mt-auto">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        
+        <!-- Cols 1-8: 7 Iconic Cars Carousel + Visual Tuning (Rims, Underglow, Paint Finish) -->
+        <div class="lg:col-span-8 space-y-3">
+          
+          <!-- 7 Iconic Hypercars & Supercars Strip -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-bold uppercase tracking-wider text-orange-400">1. Choose Iconic Hypercar / Muscle Machine (7 Cars)</span>
+              <span class="text-[10px] text-slate-400">Unique 3D PBR Bodywork & Engine Audio</span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5" id="car-selector">
+              <button data-car="chiron" class="car-card rounded-xl p-2 text-left bg-slate-900/95 border-2 border-orange-500 transition">
+                <div class="font-racing text-[11px] font-black text-white leading-tight">CHIRON W16</div>
+                <div class="text-[9px] text-sky-300 mt-0.5">420 km/h</div>
+                <div class="text-[9px] text-slate-400">Active Wing</div>
+              </button>
+
+              <button data-car="sf90" class="car-card rounded-xl p-2 text-left bg-slate-900/75 border border-white/10 hover:border-white/30 transition">
+                <div class="font-racing text-[11px] font-black text-white leading-tight">SF90 STRADALE</div>
+                <div class="text-[9px] text-rose-400 mt-0.5">385 km/h</div>
+                <div class="text-[9px] text-slate-400">EV + V8 Launch</div>
+              </button>
+
+              <button data-car="terzo" class="car-card rounded-xl p-2 text-left bg-slate-900/75 border border-white/10 hover:border-white/30 transition">
+                <div class="font-racing text-[11px] font-black text-white leading-tight">TERZO V12</div>
+                <div class="text-[9px] text-amber-300 mt-0.5">405 km/h</div>
+                <div class="text-[9px] text-slate-400">AWD Razor</div>
+              </button>
+
+              <button data-car="gt3rs" class="car-card rounded-xl p-2 text-left bg-slate-900/75 border border-white/10 hover:border-white/30 transition">
+                <div class="font-racing text-[11px] font-black text-white leading-tight">911 GT3 RS</div>
+                <div class="text-[9px] text-red-400 mt-0.5">370 km/h</div>
+                <div class="text-[9px] text-slate-400">Swan-Neck</div>
+              </button>
+
+              <button data-car="amggt63" class="car-card rounded-xl p-2 text-left bg-slate-900/75 border border-white/10 hover:border-white/30 transition">
+                <div class="font-racing text-[11px] font-black text-white leading-tight">AMG GT 63</div>
+                <div class="text-[9px] text-blue-300 mt-0.5">365 km/h</div>
+                <div class="text-[9px] text-slate-400">BiTurbo V8</div>
+              </button>
+
+              <button data-car="bmwm5" class="car-card rounded-xl p-2 text-left bg-slate-900/75 border border-white/10 hover:border-white/30 transition">
+                <div class="font-racing text-[11px] font-black text-white leading-tight">BMW M5 CS</div>
+                <div class="text-[9px] text-purple-300 mt-0.5">360 km/h</div>
+                <div class="text-[9px] text-slate-400">Gunshot Pops</div>
+              </button>
+
+              <button data-car="hellcat" class="car-card rounded-xl p-2 text-left bg-slate-900/75 border border-white/10 hover:border-white/30 transition">
+                <div class="font-racing text-[11px] font-black text-white leading-tight">SRT HELLCAT</div>
+                <div class="text-[9px] text-emerald-300 mt-0.5">355 km/h</div>
+                <div class="text-[9px] text-slate-400">HEMI Blower</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Garage Visual Tuning Row: Wheel Rims + Underglow Neon + Paint Finish -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <!-- Custom Wheel Rims Selector -->
+            <div class="glass-light rounded-xl p-2.5">
+              <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">2. Wheel Rims Style</label>
+              <select id="rim-select" class="w-full bg-slate-900/95 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-orange-400">
+                <option value="carbon">Carbon Multi-Spoke</option>
+                <option value="gold">Gold Forged Track</option>
+                <option value="chrome">Chrome Deep-Dish</option>
+                <option value="neon">Neon Blade Accent</option>
+              </select>
+            </div>
+
+            <!-- Paint Finish & Color Override -->
+            <div class="glass-light rounded-xl p-2.5">
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[10px] font-bold uppercase tracking-wider text-slate-400">3. Paint Finish</label>
+                <div class="flex items-center gap-1" id="paint-swatches">
+                  <button data-color="factory" class="w-3.5 h-3.5 rounded-full bg-gradient-to-tr from-blue-500 to-rose-500 ring-2 ring-white" title="Factory Signature"></button>
+                  <button data-color="#1d4ed8" class="w-3.5 h-3.5 rounded-full bg-blue-600" title="French Blue"></button>
+                  <button data-color="#dc2626" class="w-3.5 h-3.5 rounded-full bg-red-600" title="Rosso Red"></button>
+                  <button data-color="#18181b" class="w-3.5 h-3.5 rounded-full bg-zinc-900 border border-white/40" title="Stealth Black"></button>
+                  <button data-color="#7e22ce" class="w-3.5 h-3.5 rounded-full bg-purple-700" title="Violet"></button>
+                  <button data-color="#f8fafc" class="w-3.5 h-3.5 rounded-full bg-slate-100" title="Alpine White"></button>
+                </div>
+              </div>
+              <select id="finish-select" class="w-full bg-slate-900/95 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-orange-400">
+                <option value="factory">Factory Signature Livery</option>
+                <option value="gloss">Gloss Metallic Clearcoat</option>
+                <option value="matte">Matte Stealth Satin</option>
+                <option value="chrome">Mirror Liquid Chrome</option>
+              </select>
+            </div>
+
+            <!-- Underglow Neon Kit -->
+            <div class="glass-light rounded-xl p-2.5">
+              <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">4. Underglow Neon Kit</label>
+              <div class="flex items-center justify-between gap-1 pt-0.5" id="underglow-swatches">
+                <button data-glow="off" class="px-2 py-1 rounded-md bg-slate-800 text-[10px] font-bold text-slate-300 ring-2 ring-white">OFF</button>
+                <button data-glow="#06b6d4" class="w-6 h-6 rounded-md bg-cyan-400 shadow-md" title="Cyber Cyan"></button>
+                <button data-glow="#ef4444" class="w-6 h-6 rounded-md bg-red-500 shadow-md" title="Crimson Red"></button>
+                <button data-glow="#a855f7" class="w-6 h-6 rounded-md bg-purple-500 shadow-md" title="Hyper Purple"></button>
+                <button data-glow="#22c55e" class="w-6 h-6 rounded-md bg-green-500 shadow-md" title="Acid Green"></button>
+                <button data-glow="#f97316" class="w-6 h-6 rounded-md bg-orange-500 shadow-md" title="Sunset Orange"></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cols 9-12: Highway Distance, Mode, World & Start Button -->
+        <div class="lg:col-span-4 flex flex-col justify-between gap-2.5">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="glass-light rounded-xl p-2">
+              <label class="block text-[9px] font-bold uppercase text-slate-400 mb-1">Highway Distance</label>
+              <select id="distance-select" class="w-full bg-slate-900/95 border border-white/15 rounded-lg px-2 py-1.5 text-xs font-semibold text-white">
+                <option value="10">10.0 KM Sprint</option>
+                <option value="25" selected>25.0 KM Pursuit</option>
+                <option value="50">50.0 KM Endurance</option>
+                <option value="9999">ENDLESS Mileage</option>
+              </select>
+            </div>
+
+            <div class="glass-light rounded-xl p-2">
+              <label class="block text-[9px] font-bold uppercase text-slate-400 mb-1">World Lighting</label>
+              <select id="world-select" class="w-full bg-slate-900/95 border border-white/15 rounded-lg px-2 py-1.5 text-xs font-semibold text-white">
+                <option value="night_neon" selected>Neon Night LED</option>
+                <option value="sunset_coast">Sunset Highway</option>
+                <option value="downtown">Cyber Metropolis</option>
+                <option value="canyon">Desert Canyon</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="glass-light rounded-xl px-3 py-2 text-[10px] text-slate-300 flex items-center justify-between">
+            <span><strong>A/D or ◀/▶</strong> Smooth Lane • <strong>Shift/Space</strong> Nitro</span>
+            <span class="text-emerald-400 font-bold">Green Bay = Hideout</span>
+          </div>
+
+          <button id="btn-start-race" class="btn-primary w-full py-3.5 rounded-2xl font-racing font-black text-sm sm:text-base tracking-wider text-white uppercase flex items-center justify-center gap-2 cursor-pointer">
+            <span>🔥 LAUNCH ONTO HIGHWAY</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- ACTIVE RACING & POLICE PURSUIT HUD                                    -->
+  <!-- ===================================================================== -->
+  <div id="race-hud" class="fixed inset-0 z-10 pointer-events-none hidden">
+    
+    <!-- Top Center: Rank, Lane, Distance KM, 5-Star Police Heat & Hideout Meter -->
+    <div class="fixed top-16 sm:top-3.5 left-1/2 -translate-x-1/2 w-[95%] max-w-2xl flex flex-col items-center gap-2">
+      <div class="glass px-3.5 py-2 rounded-2xl w-full flex items-center justify-between text-xs shadow-xl">
+        <div class="flex items-center gap-3">
+          <div>
+            <div class="text-[9px] text-slate-400 uppercase font-bold">Rank</div>
+            <div id="hud-position" class="font-racing text-base sm:text-lg font-black text-amber-400">1st / 5</div>
+          </div>
+          <div class="border-l border-white/10 pl-3">
+            <div class="text-[9px] text-slate-400 uppercase font-bold">Lane</div>
+            <div id="hud-lane" class="font-racing text-xs sm:text-sm font-bold text-sky-300">LANE 2</div>
+          </div>
+          <div class="border-l border-white/10 pl-3">
+            <div class="text-[9px] text-slate-400 uppercase font-bold">Trip / Goal</div>
+            <div id="hud-distance-text" class="font-racing text-xs sm:text-sm font-bold text-white">0.00 / 25.0 KM</div>
+          </div>
+        </div>
+
+        <!-- Police Heat & Siren Mode Indicator -->
+        <div class="flex flex-col items-center">
+          <div id="hud-siren-mode" class="text-[9px] text-slate-400 uppercase font-bold">Police Heat</div>
+          <div id="hud-wanted-stars" class="text-sm sm:text-base tracking-widest text-slate-600 font-bold">
+            ★★★★★
+          </div>
+        </div>
+
+        <div class="text-right">
+          <div class="text-[9px] text-slate-400 uppercase font-bold">Career ODO</div>
+          <div id="hud-total-odo" class="font-racing text-xs sm:text-sm font-bold text-amber-300">0.0 KM</div>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="glass px-3 py-1 rounded-full w-full flex items-center gap-2">
+        <span class="text-[9px] font-racing font-bold text-orange-400">0 KM</span>
+        <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <div id="hud-progress-fill" class="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-400 transition-all duration-100" style="width: 0%"></div>
+        </div>
+        <span id="hud-goal-label" class="text-[9px] font-racing font-bold text-slate-300">25 KM</span>
+      </div>
+
+      <!-- Roadside Hideout Bay Pull-Over Banner -->
+      <div id="hideout-banner" class="hidden glass px-4 py-2.5 rounded-2xl border-2 border-emerald-400 bg-emerald-950/90 w-full max-w-md text-center shadow-2xl">
+        <div id="hideout-title" class="font-racing text-xs font-black text-emerald-300 uppercase">
+          🏪 ROADSIDE SHOP & HIDEOUT BAY — BRAKE TO 0 KM/H!
+        </div>
+        <div id="hideout-sub" class="text-[11px] text-slate-200 mt-0.5">
+          Stop completely inside the green bay to evade pursuit & repair bodywork!
+        </div>
+        <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden mt-2 border border-emerald-500/40">
+          <div id="hideout-progress" class="h-full bg-emerald-400 transition-all duration-75" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Left: Tactical Highway Radar -->
+    <div class="hidden sm:flex fixed bottom-4 left-4 glass p-3 rounded-2xl flex-col items-center gap-1.5 shadow-xl border border-white/15">
+      <div class="w-full flex items-center justify-between text-[9px] font-racing font-bold text-slate-400 px-1">
+        <span>RADAR</span>
+        <span class="text-emerald-400">■ HIDEOUT</span>
+      </div>
+      <canvas id="radar-canvas" width="124" height="174" class="rounded-xl bg-slate-950/90 border border-white/10"></canvas>
+      <div class="flex items-center gap-2 text-[9px] text-slate-300">
+        <span class="text-amber-400">▲ YOU</span>
+        <span class="text-sky-400">● RIVAL</span>
+        <span class="text-rose-500">● COP</span>
+      </div>
+    </div>
+
+    <!-- Bottom Right: Supercar Cockpit Speedometer, Gear, Nitro & Body Integrity -->
+    <div class="fixed bottom-4 right-4 glass p-3.5 sm:p-4 rounded-3xl shadow-2xl border border-white/15 w-60 sm:w-72">
+      <div class="flex items-center justify-between">
+        <div class="relative w-24 h-24 sm:w-28 sm:h-28 flex items-center justify-center">
+          <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="42" stroke="rgba(255,255,255,0.1)" stroke-width="8" fill="none" />
+            <circle id="speed-arc" cx="50" cy="50" r="42" stroke="url(#speedGrad)" stroke-width="8"
+              stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round" fill="none" />
+            <defs>
+              <linearGradient id="speedGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#38bdf8" />
+                <stop offset="55%" stop-color="#f97316" />
+                <stop offset="100%" stop-color="#ef4444" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span id="hud-speed" class="font-racing text-2xl sm:text-3xl font-black text-white leading-none">0</span>
+            <span id="hud-speed-unit" class="text-[9px] font-bold text-slate-400 mt-1">KM/H</span>
+          </div>
+        </div>
+
+        <div class="flex-1 pl-3 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-bold text-slate-400 uppercase">Gear</span>
+            <span id="hud-gear" class="font-racing text-lg font-black px-2 py-0.5 rounded-lg bg-orange-500/20 text-orange-400 border border-orange-500/40">N</span>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-[9px] font-bold mb-0.5">
+              <span class="text-sky-300">NITRO (SHIFT/SPACE)</span>
+              <span id="hud-nitro-text" class="text-sky-300 font-racing">100%</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div id="hud-nitro-bar" class="h-full bg-gradient-to-r from-sky-400 to-indigo-500" style="width: 100%"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-[9px] font-bold mb-0.5">
+              <span class="text-slate-400">BODY</span>
+              <span id="hud-health-text" class="text-emerald-400 font-racing">100%</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div id="hud-health-bar" class="h-full bg-emerald-400" style="width: 100%"></div>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-white/10">
+            <span id="hud-timer" class="font-racing text-slate-200">00:00.0</span>
+            <span id="hud-brake-indicator" class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-bold">BRAKE</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Touch Controls -->
+    <div id="touch-controls" class="fixed bottom-4 left-4 flex sm:hidden items-end gap-1.5 pointer-events-auto">
+      <button id="touch-left" class="glass active:bg-orange-500/40 w-12 h-14 rounded-2xl flex items-center justify-center text-lg font-bold text-white">◀</button>
+      <button id="touch-right" class="glass active:bg-orange-500/40 w-12 h-14 rounded-2xl flex items-center justify-center text-lg font-bold text-white">▶</button>
+      <button id="touch-nitro" class="glass active:bg-sky-600/60 px-2.5 h-14 rounded-2xl flex items-center justify-center text-[10px] font-racing font-bold text-sky-300 border border-sky-400/40">N2O</button>
+      <button id="touch-brake" class="glass active:bg-rose-600/60 px-3 h-14 rounded-2xl flex items-center justify-center text-[10px] font-racing font-bold text-rose-300 border border-rose-500/40">BRAKE</button>
+      <button id="touch-gas" class="glass active:bg-emerald-600/60 px-3.5 h-14 rounded-2xl flex items-center justify-center text-[10px] font-racing font-bold text-emerald-300 border border-emerald-500/40">GAS</button>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- FINISH LINE / BUSTED RESULTS MODAL                                    -->
+  <!-- ===================================================================== -->
+  <div id="finish-modal" class="fixed inset-0 z-30 hidden items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md">
+    <div class="glass w-full max-w-md rounded-3xl p-6 sm:p-7 text-center border border-amber-400/35 shadow-2xl">
+      <div id="finish-badge-icon" class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-600 text-3xl shadow-lg mb-2">
+        🏁
+      </div>
+      <div id="finish-kicker" class="text-[11px] font-racing font-bold uppercase tracking-widest text-amber-400">Highway Run Complete</div>
+      <h2 id="finish-title" class="font-racing text-2xl font-black text-white mt-1">1ST PLACE FINISH!</h2>
+      <p id="finish-subtitle" class="text-xs text-slate-300 mt-1">
+        Hypercar brought cleanly to 0 km/h. Career mileage banked!
+      </p>
+
+      <div class="grid grid-cols-3 gap-2 my-4">
+        <div class="glass-light rounded-2xl p-2.5">
+          <div class="text-[9px] text-slate-400 uppercase font-bold">Distance</div>
+          <div id="res-dist" class="font-racing text-xs sm:text-sm font-bold text-white mt-0.5">25.0 KM</div>
+        </div>
+        <div class="glass-light rounded-2xl p-2.5">
+          <div class="text-[9px] text-slate-400 uppercase font-bold">Top Speed</div>
+          <div id="res-top-speed" class="font-racing text-xs sm:text-sm font-bold text-sky-400 mt-0.5">418 km/h</div>
+        </div>
+        <div class="glass-light rounded-2xl p-2.5">
+          <div class="text-[9px] text-slate-400 uppercase font-bold">Career ODO</div>
+          <div id="res-odo" class="font-racing text-xs sm:text-sm font-bold text-amber-400 mt-0.5">25.0 KM</div>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2.5">
+        <button id="btn-restart-race" class="btn-secondary flex-1 py-3 rounded-xl font-racing text-xs font-bold text-white cursor-pointer">
+          ↻ RACE AGAIN
+        </button>
+        <button id="btn-next-level" class="btn-primary flex-1 py-3 rounded-xl font-racing text-xs font-bold text-white cursor-pointer">
+          GARAGE / CUSTOMIZE
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MAIN THREE.JS & WEB AUDIO ENGINE                                      -->
+  <!-- ===================================================================== -->
+  <script>
+    // =========================================================================
+    // 1. PERSISTENT PROFILE STORAGE
+    // =========================================================================
+    const STORAGE_KEY = 'road_dash_apex_pursuit_v3';
+
+    function loadProfile() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch (e) {}
+      return {
+        driverName: 'ApexRacer',
+        avatar: 'carbon',
+        suitColor: '#ef4444',
+        car: 'chiron',
+        rimStyle: 'carbon',
+        paintColor: 'factory',
+        paintFinish: 'factory',
+        underglow: 'off',
+        steerSensitivity: 1.1,
+        totalOdoKm: 0.0
+      };
+    }
+
+    const profile = loadProfile();
+
+    function saveProfile() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(profile)); } catch (e) {}
+      const odoStr = `${profile.totalOdoKm.toFixed(1)} KM`;
+      document.getElementById('top-career-odo').textContent = odoStr;
+      document.getElementById('menu-career-odo').textContent = odoStr;
+    }
+
+    function showToast(msg) {
+      const banner = document.getElementById('toast-banner');
+      document.getElementById('toast-text').textContent = msg;
+      banner.classList.remove('opacity-0');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => banner.classList.add('opacity-0'), 3200);
+    }
+
+    // =========================================================================
+    // 2. CAR ROSTER DEFINITIONS (7 ICONIC CARS WITH ENGINE AUDIO PROFILES)
+    // =========================================================================
+    const CAR_ROSTER = {
+      chiron: {
+        title: 'BUGATTI CHIRON W16',
+        desc: 'Quad-Turbo W16 • Active Hydraulic Wing • 420 KM/H',
+        maxKmh: 420,
+        accel: 33.5,
+        brake: 72.0,
+        baseAgility: 1.05,
+        armor: 1.25,
+        primaryHex: '#1d4ed8',
+        secondaryHex: '#0b0f19',
+        caliperHex: '#38bdf8',
+        engineProfile: { baseHz: 36, midMul: 2.0, highHz: 420, waveLow: 'sawtooth', waveMid: 'triangle', turboType: 'whoosh' }
+      },
+      sf90: {
+        title: 'FERRARI SF90 STRADALE',
+        desc: 'Twin-Turbo V8 + Electric Hybrid • Twin-Halo Taillights • 385 KM/H',
+        maxKmh: 385,
+        accel: 35.0,
+        brake: 70.0,
+        baseAgility: 1.20,
+        armor: 1.0,
+        primaryHex: '#dc2626',
+        secondaryHex: '#090d16',
+        caliperHex: '#facc15',
+        engineProfile: { baseHz: 52, midMul: 2.5, highHz: 580, waveLow: 'sawtooth', waveMid: 'sawtooth', turboType: 'ev_whine' }
+      },
+      terzo: {
+        title: 'LAMBORGHINI TERZO MILLENNIO',
+        desc: 'Matte Forged Carbon • Y-LED Signatures • AWD Razor Grip • 405 KM/H',
+        maxKmh: 405,
+        accel: 34.0,
+        brake: 71.0,
+        baseAgility: 1.25,
+        armor: 1.05,
+        primaryHex: '#27272a',
+        secondaryHex: '#09090b',
+        caliperHex: '#f97316',
+        engineProfile: { baseHz: 56, midMul: 3.0, highHz: 660, waveLow: 'sawtooth', waveMid: 'sine', turboType: 'turbine' }
+      },
+      gt3rs: {
+        title: 'PORSCHE 911 GT3 RS',
+        desc: 'Geometric Track Livery • Swan-Neck Rear Wing • 9,000 RPM Flat-6 • 370 KM/H',
+        maxKmh: 370,
+        accel: 31.0,
+        brake: 76.0,
+        baseAgility: 1.32,
+        armor: 1.05,
+        primaryHex: '#dc2626',
+        secondaryHex: '#090d16',
+        caliperHex: '#ef4444',
+        engineProfile: { baseHz: 58, midMul: 2.25, highHz: 510, waveLow: 'square', waveMid: 'sawtooth', turboType: 'flat6' }
+      },
+      amggt63: {
+        title: 'MERCEDES-AMG GT 63',
+        desc: 'Spectral Blue Coupe • Panamericana Grille • Quad Exhausts • 365 KM/H',
+        maxKmh: 365,
+        accel: 30.5,
+        brake: 68.0,
+        baseAgility: 1.08,
+        armor: 1.30,
+        primaryHex: '#1e40af',
+        secondaryHex: '#0f172a',
+        caliperHex: '#f59e0b',
+        engineProfile: { baseHz: 34, midMul: 1.98, highHz: 310, waveLow: 'sawtooth', waveMid: 'triangle', turboType: 'v8_burble' }
+      },
+      bmwm5: {
+        title: 'BMW M5 CS COMPETITION',
+        desc: 'Frozen Metallic Violet • Twin-Kidney Grille • Gunshot Pops • 360 KM/H',
+        maxKmh: 360,
+        accel: 31.5,
+        brake: 69.0,
+        baseAgility: 1.15,
+        armor: 1.18,
+        primaryHex: '#581c87',
+        secondaryHex: '#090d16',
+        caliperHex: '#facc15',
+        engineProfile: { baseHz: 39, midMul: 2.04, highHz: 360, waveLow: 'sawtooth', waveMid: 'square', turboType: 'gunshot' }
+      },
+      hellcat: {
+        title: 'DODGE CHALLENGER SRT HELLCAT',
+        desc: 'Widebody Dual-Stripe • Dual-Snorkel Hood • Supercharged HEMI • 355 KM/H',
+        maxKmh: 355,
+        accel: 32.5,
+        brake: 65.0,
+        baseAgility: 0.98,
+        armor: 1.40,
+        primaryHex: '#f1f5f9',
+        secondaryHex: '#090d16',
+        caliperHex: '#ef4444',
+        engineProfile: { baseHz: 32, midMul: 1.5, highHz: 740, waveLow: 'sawtooth', waveMid: 'sawtooth', turboType: 'supercharger' }
+      }
+    };
+
+    // =========================================================================
+    // 3. WEB AUDIO SYNTHESIZER (PER-CAR ENGINES, BACKFIRE POPS & MULTI-TONE SIRENS)
+    // =========================================================================
+    class ApexPursuitAudio {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+        this.initialized = false;
+        this.engineRunning = false;
+
+        this.oscLow = null;
+        this.oscMid = null;
+        this.oscCharger = null;
+        this.chargerGain = null;
+        this.engineFilter = null;
+        this.engineGain = null;
+
+        // Multi-Tone Police Siren & Air-Horn Nodes
+        this.sirenMainOsc = null;
+        this.sirenSubOsc = null;
+        this.sirenGain = null;
+        this.lastHornTime = 0;
+
+        this.screechGain = null;
+      }
+
+      init() {
+        if (this.initialized) {
+          if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+          return;
+        }
+        try {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AC();
+
+          // Engine Synth Chain
+          this.engineFilter = this.ctx.createBiquadFilter();
+          this.engineFilter.type = 'lowpass';
+          this.engineFilter.frequency.value = 180;
+
+          this.engineGain = this.ctx.createGain();
+          this.engineGain.gain.value = 0.0;
+
+          this.oscLow = this.ctx.createOscillator();
+          this.oscLow.type = 'sawtooth';
+          this.oscLow.frequency.value = 40;
+
+          this.oscMid = this.ctx.createOscillator();
+          this.oscMid.type = 'triangle';
+          this.oscMid.frequency.value = 80;
+
+          this.oscCharger = this.ctx.createOscillator();
+          this.oscCharger.type = 'sine';
+          this.oscCharger.frequency.value = 420;
+          this.chargerGain = this.ctx.createGain();
+          this.chargerGain.gain.value = 0.06;
+
+          this.oscLow.connect(this.engineFilter);
+          this.oscMid.connect(this.engineFilter);
+          this.oscCharger.connect(this.chargerGain);
+          this.chargerGain.connect(this.engineFilter);
+          this.engineFilter.connect(this.engineGain);
+          this.engineGain.connect(this.ctx.destination);
+
+          this.oscLow.start();
+          this.oscMid.start();
+          this.oscCharger.start();
+
+          // Multi-Tone Law Enforcement Siren Chain
+          this.sirenMainOsc = this.ctx.createOscillator();
+          this.sirenMainOsc.type = 'triangle';
+          this.sirenMainOsc.frequency.value = 720;
+
+          this.sirenSubOsc = this.ctx.createOscillator();
+          this.sirenSubOsc.type = 'sine';
+          this.sirenSubOsc.frequency.value = 1440;
+          const subGain = this.ctx.createGain();
+          subGain.gain.value = 0.25;
+
+          this.sirenGain = this.ctx.createGain();
+          this.sirenGain.gain.value = 0.0;
+
+          this.sirenMainOsc.connect(this.sirenGain);
+          this.sirenSubOsc.connect(subGain);
+          subGain.connect(this.sirenGain);
+          this.sirenGain.connect(this.ctx.destination);
+
+          this.sirenMainOsc.start();
+          this.sirenSubOsc.start();
+
+          // Tire Screech Noise
+          const bufLen = this.ctx.sampleRate * 2;
+          const nBuf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+          const ch = nBuf.getChannelData(0);
+          for (let i = 0; i < bufLen; i++) ch[i] = Math.random() * 2 - 1;
+          const nSrc = this.ctx.createBufferSource();
+          nSrc.buffer = nBuf;
+          nSrc.loop = true;
+
+          const sFilter = this.ctx.createBiquadFilter();
+          sFilter.type = 'bandpass';
+          sFilter.frequency.value = 1450;
+          sFilter.Q.value = 5.5;
+
+          this.screechGain = this.ctx.createGain();
+          this.screechGain.gain.value = 0.0;
+          nSrc.connect(sFilter);
+          sFilter.connect(this.screechGain);
+          this.screechGain.connect(this.ctx.destination);
+          nSrc.start();
+
+          this.initialized = true;
+        } catch (e) {}
+      }
+
+      applyCarVoice(carKey) {
+        if (!this.initialized || !this.ctx) return;
+        const spec = CAR_ROSTER[carKey] || CAR_ROSTER.chiron;
+        const ep = spec.engineProfile;
+        this.oscLow.type = ep.waveLow;
+        this.oscMid.type = ep.waveMid;
+        // Supercharger / EV whine louder on Hellcat, SF90 & Terzo
+        this.chargerGain.gain.value = (ep.turboType === 'supercharger' || ep.turboType === 'ev_whine' || ep.turboType === 'turbine') ? 0.13 : 0.05;
+      }
+
+      startEngine() {
+        this.init();
+        this.applyCarVoice(profile.car);
+        this.engineRunning = true;
+      }
+
+      stopAll(fadeSec = 0.25) {
+        this.engineRunning = false;
+        if (!this.initialized || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        this.engineGain.gain.setTargetAtTime(0.0, now, fadeSec * 0.25);
+        this.sirenGain.gain.setTargetAtTime(0.0, now, 0.08);
+        this.screechGain.gain.setTargetAtTime(0.0, now, 0.06);
+      }
+
+      // Sharp Exhaust Backfire Pop / Gunshot Crackle + Turbo Blowoff Whoosh
+      playBackfirePop(isLoudGunshot = false) {
+        if (!this.initialized || this.muted || !this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        // Sharp percussive exhaust bang
+        const dur = isLoudGunshot ? 0.18 : 0.12;
+        const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < ch.length; i++) {
+          ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ch.length * 0.22));
+        }
+
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(isLoudGunshot ? 1600 : 950, now);
+        filter.frequency.exponentialRampToValueAtTime(140, now + dur);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(isLoudGunshot ? 0.34 : 0.22, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        src.start(now);
+      }
+
+      // Deep Law-Enforcement Air-Horn Blast when Cops close in behind player
+      playPoliceAirHorn() {
+        if (!this.initialized || this.muted || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        [185, 233].forEach(freq => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, now);
+          osc.frequency.linearRampToValueAtTime(freq * 0.96, now + 0.36);
+
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.11, now + 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.4);
+        });
+      }
+
+      update(speedKmh, rpmNorm, isBraking, wantedStars, closestCopDist, isHidden, raceRunning) {
+        if (!this.initialized || !this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        if (this.muted || !this.engineRunning || !raceRunning) {
+          this.engineGain.gain.setTargetAtTime(0.0, now, 0.1);
+          this.sirenGain.gain.setTargetAtTime(0.0, now, 0.08);
+          this.screechGain.gain.setTargetAtTime(0.0, now, 0.06);
+          return;
+        }
+
+        const spec = CAR_ROSTER[profile.car] || CAR_ROSTER.chiron;
+        const ep = spec.engineProfile;
+
+        if (speedKmh < 1.0 || isHidden) {
+          this.engineGain.gain.setTargetAtTime(isHidden ? 0.0 : 0.025, now, 0.14);
+          this.oscLow.frequency.setTargetAtTime(ep.baseHz * 0.85, now, 0.08);
+          this.oscMid.frequency.setTargetAtTime(ep.baseHz * 1.7, now, 0.08);
+        } else {
+          const lowFreq = ep.baseHz + rpmNorm * 112;
+          this.oscLow.frequency.setTargetAtTime(lowFreq, now, 0.04);
+          this.oscMid.frequency.setTargetAtTime(lowFreq * ep.midMul, now, 0.04);
+          this.oscCharger.frequency.setTargetAtTime(ep.highHz + rpmNorm * 1850, now, 0.05);
+          this.engineFilter.frequency.setTargetAtTime(175 + rpmNorm * 1180, now, 0.05);
+          this.engineGain.gain.setTargetAtTime(0.055 + rpmNorm * 0.115, now, 0.05);
+        }
+
+        // Tire screech on hard braking
+        const screech = (isBraking && speedKmh > 45) ? Math.min(0.13, ((speedKmh - 45) / 240) * 0.13) : 0.0;
+        this.screechGain.gain.setTargetAtTime(screech, now, 0.05);
+
+        // Multi-Tone Police Siren System (1-2★ Wail | 3-4★ Yelp + Air-Horn | 5★ Hi-Lo + Phaser + Doppler)
+        if (wantedStars > 0 && !isHidden) {
+          const t = performance.now() * 0.001;
+          const dopplerFactor = closestCopDist < 65 ? (1.0 + (65 - closestCopDist) * 0.0022) : 0.96;
+          let sirenFreq = 750;
+
+          if (wantedStars <= 2) {
+            // Mode 1: Classic sweeping Wail siren
+            sirenFreq = (740 + Math.sin(t * 2.2) * 260) * dopplerFactor;
+          } else if (wantedStars <= 4) {
+            // Mode 2: Fast urgent Yelp siren + periodic deep air-horn blasts when cop is close
+            sirenFreq = (820 + Math.sin(t * 11.5) * 310) * dopplerFactor;
+            if (closestCopDist < 34 && (t - this.lastHornTime) > 3.6) {
+              this.lastHornTime = t;
+              this.playPoliceAirHorn();
+            }
+          } else {
+            // Mode 3 (5 Stars): Full Hi-Lo + Rapid Phaser pursuit alarm with Doppler shift
+            const phaseSwitch = Math.floor(t * 2.5) % 2 === 0;
+            if (phaseSwitch) {
+              sirenFreq = (Math.floor(t * 5) % 2 === 0 ? 980 : 740) * dopplerFactor; // Hi-Lo European/Pursuit
+            } else {
+              sirenFreq = (860 + Math.sin(t * 26) * 340) * dopplerFactor; // Rapid Phaser
+            }
+            if (closestCopDist < 38 && (t - this.lastHornTime) > 2.8) {
+              this.lastHornTime = t;
+              this.playPoliceAirHorn();
+            }
+          }
+
+          this.sirenMainOsc.frequency.setTargetAtTime(sirenFreq, now, 0.03);
+          this.sirenSubOsc.frequency.setTargetAtTime(sirenFreq * 1.5, now, 0.03);
+          const proxVol = Math.max(0.035, Math.min(0.13, (95 - Math.min(85, closestCopDist)) / 650));
+          this.sirenGain.gain.setTargetAtTime(proxVol, now, 0.08);
+        } else {
+          this.sirenGain.gain.setTargetAtTime(0.0, now, 0.12);
+        }
+      }
+
+      playCrash(intensity = 1.0) {
+        if (!this.initialized || this.muted || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(135, now);
+        osc.frequency.exponentialRampToValueAtTime(24, now + 0.28);
+        g.gain.setValueAtTime(0.32 * Math.min(1.4, intensity), now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+        osc.connect(g);
+        g.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.31);
+      }
+
+      playSuccessChime() {
+        if (!this.initialized || this.muted || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(f, now + i * 0.08);
+          g.gain.setValueAtTime(0.14, now + i * 0.08);
+          g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.65);
+          osc.connect(g);
+          g.connect(this.ctx.destination);
+          osc.start(now + i * 0.08);
+          osc.stop(now + i * 0.08 + 0.7);
+        });
+      }
+
+      toggleMute() {
+        this.muted = !this.muted;
+        return this.muted;
+      }
+    }
+
+    const audio = new ApexPursuitAudio();
+
+    // =========================================================================
+    // 4. THREE.JS SCENE, STUDIO SHOWROOM FLOOR & PBR CAR BUILDER
+    // =========================================================================
+    const container = document.getElementById('game-container');
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x050814, 0.0044);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 460);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.24;
+    container.appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0x64748b, 0.85);
+    scene.add(ambientLight);
+
+    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x0f172a, 0.85);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xf8fafc, 1.35);
+    sunLight.position.set(35, 65, 25);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 1024;
+    sunLight.shadow.mapSize.height = 1024;
+    scene.add(sunLight);
+
+    // Showroom Studio Rim Light (Illuminates car contours cleanly in Garage)
+    const showroomLight = new THREE.PointLight(0x38bdf8, 1.8, 18);
+    showroomLight.position.set(-3.5, 3.2, 2.5);
+    scene.add(showroomLight);
+
+    // Procedural Canvas Texture for Porsche 911 GT3 RS Black & Red Geometric Livery
+    function createGT3LiveryTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 512;
+      const ctx = c.getContext('2d');
+
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Sharp Red & White Geometric Racing Triangles & Stripes
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.moveTo(0, 120);
+      ctx.lineTo(360, 0);
+      ctx.lineTo(512, 180);
+      ctx.lineTo(140, 512);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.moveTo(110, 512);
+      ctx.lineTo(440, 140);
+      ctx.lineTo(475, 175);
+      ctx.lineTo(155, 512);
+      ctx.closePath();
+      ctx.fill();
+
+      // GT3 RS Side Graphic
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 44px Orbitron, sans-serif';
+      ctx.fillText('GT3 RS', 145, 285);
+
+      return new THREE.CanvasTexture(c);
+    }
+    const gt3LiveryTex = createGT3LiveryTexture();
+
+    // Cockpit Driver Avatar Builder
+    function createCockpitDriver(avatarType = 'carbon', suitColor = '#ef4444') {
+      const driver = new THREE.Group();
+      const suitMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(suitColor), roughness: 0.55 });
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.34, 0.32), suitMat);
+      torso.position.set(-0.36, 0.86, 0.05);
+      driver.add(torso);
+
+      const helmetColor = avatarType === 'gold' ? 0xfbbf24
+        : avatarType === 'cyber' ? 0x06b6d4
+        : avatarType === 'street' ? 0x1e293b
+        : avatarType === 'classic' ? 0xf8fafc
+        : 0x0f172a;
+
+      const helmetMat = new THREE.MeshPhysicalMaterial({
+        color: helmetColor,
+        metalness: avatarType === 'gold' ? 0.92 : 0.45,
+        roughness: 0.18,
+        clearcoat: 1.0
+      });
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 14), helmetMat);
+      head.position.set(-0.36, 1.12, 0.05);
+      driver.add(head);
+
+      const visorMat = new THREE.MeshPhysicalMaterial({
+        color: avatarType === 'cyber' ? 0x38bdf8 : 0x020617,
+        emissive: avatarType === 'cyber' ? 0x0284c7 : 0x000000,
+        emissiveIntensity: avatarType === 'cyber' ? 1.8 : 0,
+        metalness: 0.9,
+        roughness: 0.08
+      });
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, 0.18), visorMat);
+      visor.position.set(-0.36, 1.13, -0.06);
+      driver.add(visor);
+
+      return driver;
+    }
+
+    // Build Custom Wheel with Rim Style, Spinning Brake Disc & Colored Caliper
+    function buildCustomWheel(rimStyle = 'carbon', caliperHex = '#ef4444', isTerzo = false) {
+      const wheelGroup = new THREE.Group();
+
+      // Tire Rubber
+      const tireMat = new THREE.MeshStandardMaterial({ color: 0x0d1015, roughness: 0.85, metalness: 0.08 });
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.39, 0.39, 0.31, 24), tireMat);
+      tire.rotation.z = Math.PI / 2;
+      tire.castShadow = true;
+      wheelGroup.add(tire);
+
+      // Slotted Metallic Brake Rotor Disc (spins with wheel)
+      const discMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.88, roughness: 0.28 });
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.12, 18), discMat);
+      disc.rotation.z = Math.PI / 2;
+      wheelGroup.add(disc);
+
+      // Rim Material & Spoke Geometry per Rim Style
+      let rimColor = 0x1e293b;
+      let metal = 0.85;
+      let rough = 0.22;
+      let emissiveHex = 0x000000;
+      let emissiveInt = 0;
+
+      if (rimStyle === 'gold') {
+        rimColor = 0xf59e0b; metal = 0.92; rough = 0.18;
+      } else if (rimStyle === 'chrome') {
+        rimColor = 0xf1f5f9; metal = 0.98; rough = 0.08;
+      } else if (rimStyle === 'neon' || isTerzo) {
+        rimColor = 0x0f172a;
+        emissiveHex = isTerzo ? 0xf97316 : 0x06b6d4;
+        emissiveInt = 2.2;
+      }
+
+      const rimMat = new THREE.MeshStandardMaterial({
+        color: rimColor,
+        metalness: metal,
+        roughness: rough,
+        emissive: emissiveHex,
+        emissiveIntensity: emissiveInt
+      });
+
+      // Outer Rim Barrel Lip
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.32, 20, 1, true), rimMat);
+      barrel.rotation.z = Math.PI / 2;
+      wheelGroup.add(barrel);
+
+      // Center Hub
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.33, 12), rimMat);
+      hub.rotation.z = Math.PI / 2;
+      wheelGroup.add(hub);
+
+      // Multi-Spoke Arms
+      const spokeCount = rimStyle === 'carbon' ? 7 : rimStyle === 'gold' ? 6 : 5;
+      for (let s = 0; s < spokeCount; s++) {
+        const angle = (s / spokeCount) * Math.PI * 2;
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.036, 0.52), rimMat);
+        spoke.rotation.x = angle;
+        wheelGroup.add(spoke);
+      }
+
+      return wheelGroup;
+    }
+
+    // =========================================================================
+    // HYPER-DETAILED PROCEDURAL 3D PBR SUPERCAR BUILDER (ALL 7 ICONIC CARS)
+    // =========================================================================
+    function createPBRSupercar(options = {}) {
+      const {
+        carKey = 'chiron',
+        rimStyle = 'carbon',
+        paintColor = 'factory',
+        paintFinish = 'factory',
+        underglow = 'off',
+        avatarType = 'carbon',
+        suitColor = '#ef4444',
+        isPlayer = false,
+        isPolice = false
+      } = options;
+
+      const spec = CAR_ROSTER[carKey] || CAR_ROSTER.chiron;
+      const root = new THREE.Group();
+
+      // Determine Main Paint Color & PBR Surface Finish
+      const chosenColorHex = isPolice ? '#090d16' : (paintColor === 'factory' ? spec.primaryHex : paintColor);
+      let clearcoat = 1.0;
+      let clearcoatRoughness = 0.08;
+      let metalness = 0.72;
+      let roughness = 0.20;
+      let mapTex = null;
+
+      if (carKey === 'gt3rs' && paintFinish === 'factory' && paintColor === 'factory') {
+        mapTex = gt3LiveryTex;
+      } else if (carKey === 'terzo' && paintFinish === 'factory') {
+        clearcoat = 0.15; roughness = 0.62; metalness = 0.45; // Matte forged carbon
+      }
+
+      if (paintFinish === 'matte') {
+        clearcoat = 0.1; roughness = 0.68; metalness = 0.35;
+      } else if (paintFinish === 'chrome') {
+        clearcoat = 1.0; roughness = 0.05; metalness = 0.98;
+      } else if (paintFinish === 'gloss') {
+        clearcoat = 1.0; roughness = 0.14; metalness = 0.78;
+      }
+
+      const bodyMat = new THREE.MeshPhysicalMaterial({
+        color: mapTex ? 0xffffff : new THREE.Color(chosenColorHex),
+        map: mapTex,
+        metalness,
+        roughness,
+        clearcoat,
+        clearcoatRoughness
+      });
+
+      const accentMat = new THREE.MeshPhysicalMaterial({
+        color: isPolice ? 0xf8fafc : new THREE.Color(spec.secondaryHex),
+        metalness: 0.6,
+        roughness: 0.25,
+        clearcoat: 0.9
+      });
+
+      const carbonMat = new THREE.MeshStandardMaterial({
+        color: 0x0b0f17,
+        metalness: 0.45,
+        roughness: 0.55
+      });
+
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0x08101e,
+        metalness: 0.15,
+        roughness: 0.06,
+        transmission: 0.35,
+        transparent: true,
+        opacity: 0.74
+      });
+
+      const chromeMat = new THREE.MeshStandardMaterial({
+        color: 0xf1f5f9,
+        metalness: 0.96,
+        roughness: 0.10
+      });
+
+      // 1. Sculpted Low-Slung Monocoque Chassis & Widebody Fender Arches
+      const tub = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.46, 4.74), bodyMat);
+      tub.position.set(0, 0.48, 0);
+      tub.castShadow = true;
+      tub.receiveShadow = true;
+      root.add(tub);
+
+      if (isPolice) {
+        const whiteDoors = new THREE.Mesh(new THREE.BoxGeometry(2.18, 0.36, 1.95), accentMat);
+        whiteDoors.position.set(0, 0.50, 0.05);
+        root.add(whiteDoors);
+      }
+
+      // Muscular Front & Rear Fender Flares
+      [[-0.98, -1.46], [0.98, -1.46], [-1.02, 1.46], [1.02, 1.46]].forEach(([fx, fz]) => {
+        const fender = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 1.22), bodyMat);
+        fender.position.set(fx, 0.58, fz);
+        root.add(fender);
+      });
+
+      // Carbon Splitter & Side Aero Skirts
+      const splitter = new THREE.Mesh(new THREE.BoxGeometry(2.24, 0.09, 0.66), carbonMat);
+      splitter.position.set(0, 0.24, -2.34);
+      root.add(splitter);
+
+      [-1.08, 1.08].forEach(sx => {
+        const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 2.65), carbonMat);
+        skirt.position.set(sx, 0.24, 0);
+        root.add(skirt);
+      });
+
+      // Sloped Aerodynamic Hood & Teardrop Glass Canopy
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.14, 1.56), bodyMat);
+      hood.position.set(0, 0.73, -1.42);
+      hood.rotation.x = 0.11;
+      root.add(hood);
+
+      const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.48, 2.04), glassMat);
+      canopy.position.set(0, 0.97, 0.08);
+      root.add(canopy);
+
+      const roofPanel = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.07, 1.18),
+        (carKey === 'sf90' || carKey === 'chiron') ? accentMat : bodyMat
+      );
+      roofPanel.position.set(0, 1.23, 0.14);
+      root.add(roofPanel);
+
+      if (isPlayer) {
+        root.add(createCockpitDriver(avatarType, suitColor));
+      }
+
+      // =====================================================================
+      // SIGNATURE MODEL-SPECIFIC DETAILS FOR ALL 7 ICONIC CARS
+      // =====================================================================
+      const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xe0f2fe, emissiveIntensity: 2.8 });
+      const tailMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, emissive: 0xef4444, emissiveIntensity: 1.1 });
+      let activeWing = null;
+      const exhaustTips = [];
+
+      if (carKey === 'chiron') {
+        // Two-tone Black rear deck + Silver C-Line side curve + Horseshoe grille + Quad-LED headlights + Active Hydraulic Wing
+        const rearDeck = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.47, 2.15), accentMat);
+        rearDeck.position.set(0, 0.485, 1.28);
+        root.add(rearDeck);
+
+        [-1.09, 1.09].forEach(cx => {
+          const cCurve = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.58, 1.98), chromeMat);
+          cCurve.position.set(cx, 0.72, 0.10);
+          root.add(cCurve);
+        });
+
+        const horseshoeRing = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.35, 0.14), chromeMat);
+        horseshoeRing.position.set(0, 0.44, -2.38);
+        const horseshoeInner = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.29, 0.16), carbonMat);
+        horseshoeInner.position.set(0, 0.44, -2.39);
+        root.add(horseshoeRing, horseshoeInner);
+
+        // Quad-LED rectangular headlights
+        [-0.84, -0.62, 0.62, 0.84].forEach(hx => {
+          const qLed = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.09, 0.12), hlMat);
+          qLed.position.set(hx, 0.58, -2.37);
+          root.add(qLed);
+        });
+
+        // Full-width Chiron LED taillight strip
+        const tailStrip = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.08, 0.1), tailMat);
+        tailStrip.position.set(0, 0.65, 2.38);
+        root.add(tailStrip);
+
+        // Active Hydraulic Rear Wing
+        [-0.65, 0.65].forEach(px => {
+          const strut = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.34, 0.24), carbonMat);
+          strut.position.set(px, 0.86, 2.02);
+          root.add(strut);
+        });
+        activeWing = new THREE.Mesh(new THREE.BoxGeometry(2.08, 0.07, 0.36), bodyMat);
+        activeWing.position.set(0, 1.02, 2.08);
+        root.add(activeWing);
+
+      } else if (carKey === 'sf90') {
+        // Ultra-low wedge nose, C-shaped slit LEDs, side air intakes, twin-halo taillights
+        const wedge = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.18, 1.45), bodyMat);
+        wedge.position.set(0, 0.64, -1.65);
+        wedge.rotation.x = 0.16;
+        root.add(wedge);
+
+        [-0.78, 0.78].forEach(hx => {
+          const slit = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.07, 0.12), hlMat);
+          slit.position.set(hx, 0.56, -2.37);
+          root.add(slit);
+
+          const intake = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.34, 0.95), carbonMat);
+          intake.position.set(hx * 1.38, 0.60, 0.45);
+          root.add(intake);
+        });
+
+        // Twin-Halo Square Taillights
+        [-0.76, -0.44, 0.44, 0.76].forEach(tx => {
+          const halo = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.1), tailMat);
+          halo.position.set(tx, 0.64, 2.38);
+          root.add(halo);
+        });
+
+      } else if (carKey === 'terzo') {
+        // Futuristic Y-shaped glowing white LED front & rear signatures + glowing orange rims
+        [-0.74, 0.74].forEach(sx => {
+          const yArm1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.12), hlMat);
+          yArm1.position.set(sx, 0.58, -2.37);
+          yArm1.rotation.z = sx > 0 ? 0.35 : -0.35;
+          const yArm2 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.05, 0.12), hlMat);
+          yArm2.position.set(sx, 0.50, -2.37);
+          yArm2.rotation.z = sx > 0 ? -0.35 : 0.35;
+          root.add(yArm1, yArm2);
+
+          const rearY = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.07, 0.1), tailMat);
+          rearY.position.set(sx, 0.64, 2.38);
+          rearY.rotation.z = sx > 0 ? -0.25 : 0.25;
+          root.add(rearY);
+        });
+
+        activeWing = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.06, 0.34), carbonMat);
+        activeWing.position.set(0, 1.04, 2.12);
+        root.add(activeWing);
+
+      } else if (carKey === 'gt3rs') {
+        // Oval LED projector headlights, front fender louvers, massive swan-neck rear wing
+        [-0.76, 0.76].forEach(hx => {
+          const oval = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.12, 16), hlMat);
+          oval.rotation.x = Math.PI / 2;
+          oval.position.set(hx, 0.62, -2.34);
+          root.add(oval);
+
+          // Front fender louvers
+          const louver = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.04, 0.65), carbonMat);
+          louver.position.set(hx * 1.25, 0.76, -1.45);
+          root.add(louver);
+        });
+
+        const tailBar = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.09, 0.1), tailMat);
+        tailBar.position.set(0, 0.65, 2.38);
+        root.add(tailBar);
+
+        // Swan-Neck Over-Wing Pylons + Huge Carbon Track Wing
+        [-0.64, 0.64].forEach(px => {
+          const swan = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.48, 0.28), carbonMat);
+          swan.position.set(px, 0.98, 2.02);
+          root.add(swan);
+        });
+        activeWing = new THREE.Mesh(new THREE.BoxGeometry(2.22, 0.08, 0.42), carbonMat);
+        activeWing.position.set(0, 1.18, 2.12);
+        root.add(activeWing);
+
+      } else if (carKey === 'amggt63') {
+        // Vertical-slat Panamericana front grille, swept LED headlights, rear lip spoiler
+        const grilleBox = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.32, 0.12), carbonMat);
+        grilleBox.position.set(0, 0.44, -2.38);
+        root.add(grilleBox);
+        for (let g = -0.46; g <= 0.46; g += 0.115) {
+          const slat = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.28, 0.14), chromeMat);
+          slat.position.set(g, 0.44, -2.39);
+          root.add(slat);
+        }
+        [-0.78, 0.78].forEach(hx => {
+          const swept = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.09, 0.12), hlMat);
+          swept.position.set(hx, 0.60, -2.36);
+          root.add(swept);
+        });
+        const tailBar = new THREE.Mesh(new THREE.BoxGeometry(1.90, 0.09, 0.1), tailMat);
+        tailBar.position.set(0, 0.65, 2.38);
+        root.add(tailBar);
+
+      } else if (carKey === 'bmwm5') {
+        // Illuminated Twin-Kidney Front Grille, Power-Dome Hood, Quad-Bar DRLs
+        [-0.26, 0.26].forEach(kx => {
+          const kidney = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.28, 0.14), hlMat);
+          kidney.position.set(kx, 0.46, -2.38);
+          const kidneyCore = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.16), carbonMat);
+          kidneyCore.position.set(kx, 0.46, -2.39);
+          root.add(kidney, kidneyCore);
+        });
+        const powerDome = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.09, 1.25), bodyMat);
+        powerDome.position.set(0, 0.81, -1.35);
+        root.add(powerDome);
+
+        [-0.84, -0.64, 0.64, 0.84].forEach(bx => {
+          const drl = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.10, 0.12), hlMat);
+          drl.position.set(bx, 0.58, -2.37);
+          root.add(drl);
+        });
+        const tailL = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.11, 0.1), tailMat);
+        tailL.position.set(0, 0.65, 2.38);
+        root.add(tailL);
+
+      } else if (carKey === 'hellcat') {
+        // Dual Black Racing Stripes, Dual-Snorkel Hood Scoops, Quad Round Halo Headlights
+        [-0.28, 0.28].forEach(sx => {
+          const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.02, 4.65), carbonMat);
+          stripe.position.set(sx, 0.81, -0.1);
+          root.add(stripe);
+
+          const snorkel = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.11, 0.55), carbonMat);
+          snorkel.position.set(sx * 1.3, 0.82, -1.35);
+          root.add(snorkel);
+        });
+
+        // Quad Round Halo Headlights
+        [-0.82, -0.56, 0.56, 0.82].forEach(rx => {
+          const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.12, 16), hlMat);
+          halo.rotation.x = Math.PI / 2;
+          halo.position.set(rx, 0.54, -2.37);
+          root.add(halo);
+        });
+
+        const raceTrackTail = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.16, 0.1), tailMat);
+        raceTrackTail.position.set(0, 0.62, 2.38);
+        root.add(raceTrackTail);
+      }
+
+      // Rear Carbon Diffuser + Quad Exhaust Pipes (stores local coordinates for flame bursts!)
+      const diffuser = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.24, 0.22), carbonMat);
+      diffuser.position.set(0, 0.30, 2.35);
+      root.add(diffuser);
+
+      [-0.64, -0.44, 0.44, 0.64].forEach(ex => {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.22, 12), chromeMat);
+        pipe.rotation.x = Math.PI / 2;
+        pipe.position.set(ex, 0.31, 2.42);
+        root.add(pipe);
+        exhaustTips.push(new THREE.Vector3(ex, 0.31, 2.54));
+      });
+
+      // Police Roof Lightbar if Police Interceptor
+      let redBeacon = null;
+      let blueBeacon = null;
+      if (isPolice) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.08, 0.24), carbonMat);
+        bar.position.set(0, 1.29, 0.14);
+        root.add(bar);
+
+        redBeacon = new THREE.Mesh(
+          new THREE.BoxGeometry(0.50, 0.12, 0.22),
+          new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 4.0 })
+        );
+        redBeacon.position.set(-0.29, 1.36, 0.14);
+        blueBeacon = new THREE.Mesh(
+          new THREE.BoxGeometry(0.50, 0.12, 0.22),
+          new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x3b82f6, emissiveIntensity: 4.0 })
+        );
+        blueBeacon.position.set(0.29, 1.36, 0.14);
+        root.add(redBeacon, blueBeacon);
+      }
+
+      // 4 Custom Rim Wheels + Colored Brake Calipers
+      const wheels = [];
+      const frontPivots = [];
+      const caliperMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(spec.caliperHex), metalness: 0.5, roughness: 0.3 });
+
+      [
+        { x: -1.0, y: 0.39, z: -1.46, front: true },
+        { x:  1.0, y: 0.39, z: -1.46, front: true },
+        { x: -1.0, y: 0.39, z:  1.46, front: false },
+        { x:  1.0, y: 0.39, z:  1.46, front: false }
+      ].forEach(wp => {
+        const pivot = new THREE.Group();
+        pivot.position.set(wp.x, wp.y, wp.z);
+
+        const wheel = buildCustomWheel(rimStyle, spec.caliperHex, carKey === 'terzo' && rimStyle === 'carbon');
+        pivot.add(wheel);
+
+        // Stationary Colored Brake Caliper mounted inside wheel
+        const caliper = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.16, 0.14), caliperMat);
+        caliper.position.set(0, 0.12, 0.12);
+        pivot.add(caliper);
+
+        root.add(pivot);
+        wheels.push(wheel);
+        if (wp.front) frontPivots.push(pivot);
+      });
+
+      // Underglow Neon Kit (Glowing Side Strips + Real Colored Ground PointLight)
+      let underglowLight = null;
+      if (underglow && underglow !== 'off') {
+        const glowColor = new THREE.Color(underglow);
+        const stripMat = new THREE.MeshBasicMaterial({ color: glowColor });
+        [-1.04, 1.04].forEach(gx => {
+          const neonTube = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 3.4), stripMat);
+          neonTube.position.set(gx, 0.19, 0);
+          root.add(neonTube);
+        });
+        underglowLight = new THREE.PointLight(glowColor, 2.4, 8.5);
+        underglowLight.position.set(0, 0.35, 0);
+        root.add(underglowLight);
+      }
+
+      // Player Forward Headlight SpotLight
+      let spotLight = null;
+      if (isPlayer) {
+        spotLight = new THREE.SpotLight(0xf8fafc, 2.8, 88, Math.PI / 5, 0.45, 1.0);
+        spotLight.position.set(0, 0.85, -2.2);
+        spotLight.target.position.set(0, 0.1, -30);
+        root.add(spotLight);
+        root.add(spotLight.target);
+      }
+
+      // Collision Scratch Decals
+      const scratchMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8, roughness: 0.6 });
+      const leftScratch = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 1.75), scratchMat);
+      leftScratch.position.set(-1.08, 0.52, 0);
+      leftScratch.visible = false;
+      const rightScratch = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 1.75), scratchMat);
+      rightScratch.position.set(1.08, 0.52, 0);
+      rightScratch.visible = false;
+      root.add(leftScratch, rightScratch);
+
+      return {
+        mesh: root,
+        wheels,
+        frontPivots,
+        activeWing,
+        exhaustTips,
+        spotLight,
+        hlMat,
+        tailMat,
+        redBeacon,
+        blueBeacon,
+        setBraking(braking, speedKmh = 0) {
+          tailMat.emissiveIntensity = braking ? 4.8 : 1.1;
+          tailMat.color.setHex(braking ? 0xff1e1e : 0x991b1b);
+          if (activeWing) {
+            if (braking && speedKmh > 60) {
+              // Hydraulic Airbrake deployment
+              activeWing.rotation.x = -0.48;
+              activeWing.position.y = carKey === 'gt3rs' ? 1.24 : 1.15;
+            } else if (speedKmh > 180) {
+              // High-speed downforce angle
+              activeWing.rotation.x = -0.14;
+              activeWing.position.y = carKey === 'gt3rs' ? 1.21 : 1.09;
+            } else {
+              activeWing.rotation.x = -0.04;
+              activeWing.position.y = carKey === 'gt3rs' ? 1.18 : 1.02;
+            }
+          }
+        },
+        setHeadlights(on) {
+          hlMat.emissiveIntensity = on ? 2.8 : 0.25;
+          if (spotLight) spotLight.visible = on;
+        },
+        applyScratch(side) {
+          if (side === 'left') leftScratch.visible = true;
+          else rightScratch.visible = true;
+        },
+        resetScratches() {
+          leftScratch.visible = false;
+          rightScratch.visible = false;
+        }
+      };
+    }
+
+    // =========================================================================
+    // 5. FLAMING EXHAUST BACKFIRES & NITRO PLASMA PARTICLE SYSTEM
+    // =========================================================================
+    const exhaustFlames = [];
+    const flameGeo = new THREE.ConeGeometry(0.11, 0.48, 8);
+    flameGeo.rotateX(Math.PI / 2);
+
+    for (let i = 0; i < 48; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.92
+      });
+      const mesh = new THREE.Mesh(flameGeo, mat);
+      mesh.visible = false;
+      scene.add(mesh);
+      exhaustFlames.push({ mesh, mat, vz: 0, life: 0, maxLife: 0.15 });
+    }
+
+    // Dynamic PointLight behind exhaust that illuminates asphalt during backfires & Nitro
+    const exhaustFlashLight = new THREE.PointLight(0x38bdf8, 0, 11);
+    scene.add(exhaustFlashLight);
+
+    function spawnExhaustFlames(carObj, isNitroPlasma = false) {
+      if (!carObj || !carObj.exhaustTips) return;
+      carObj.exhaustTips.forEach((localTip) => {
+        const worldTip = localTip.clone().applyMatrix4(carObj.mesh.matrixWorld);
+        for (const f of exhaustFlames) {
+          if (f.life <= 0) {
+            f.mesh.position.copy(worldTip);
+            f.mesh.position.x += (Math.random() - 0.5) * 0.04;
+            f.mesh.position.y += (Math.random() - 0.5) * 0.04;
+            const scale = isNitroPlasma ? (1.2 + Math.random() * 0.6) : (0.85 + Math.random() * 0.55);
+            f.mesh.scale.set(scale, scale, scale * (isNitroPlasma ? 1.5 : 1.0));
+            // Blue plasma core + orange/amber backfire tips
+            f.mat.color.setHex(isNitroPlasma ? 0x38bdf8 : (Math.random() > 0.42 ? 0x38bdf8 : 0xf97316));
+            f.mat.opacity = 0.95;
+            f.vz = 8 + Math.random() * 6;
+            f.maxLife = isNitroPlasma ? 0.12 : 0.18;
+            f.life = f.maxLife;
+            f.mesh.visible = true;
+            break;
+          }
+        }
+      });
+
+      const rearPos = new THREE.Vector3(0, 0.45, 2.75).applyMatrix4(carObj.mesh.matrixWorld);
+      exhaustFlashLight.position.copy(rearPos);
+      exhaustFlashLight.color.setHex(isNitroPlasma ? 0x38bdf8 : 0xf97316);
+      exhaustFlashLight.intensity = isNitroPlasma ? 3.5 : 4.2;
+    }
+
+    // =========================================================================
+    // 6. HIGHWAY WORLD, PIXELATED NIGHT BANNERS, SHOPS & ARTICULATED PEOPLE
+    // =========================================================================
+    const ROAD_WIDTH = 18.4;
+    const LANE_CENTERS = [-6.6, -2.2, 2.2, 6.6];
+
+    const worldGroup = new THREE.Group();
+    scene.add(worldGroup);
+
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x050811, roughness: 0.9 });
+    const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(650, 950), groundMat);
+    groundMesh.rotation.x = -Math.PI / 2;
+    groundMesh.position.y = -0.05;
+    worldGroup.add(groundMesh);
+
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.48, metalness: 0.28 });
+    const roadMesh = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, 950), roadMat);
+    roadMesh.rotation.x = -Math.PI / 2;
+    roadMesh.position.y = 0.01;
+    roadMesh.receiveShadow = true;
+    worldGroup.add(roadMesh);
+
+    // Sidewalks
+    const sidewalkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+    [-ROAD_WIDTH / 2 - 3.6, ROAD_WIDTH / 2 + 3.6].forEach(sx => {
+      const walk = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.16, 950), sidewalkMat);
+      walk.position.set(sx, 0.06, 0);
+      worldGroup.add(walk);
+    });
+
+    // Lane Dashes
+    const laneDashes = [];
+    const dashMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+    const centerMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+    const dashGeo = new THREE.PlaneGeometry(0.22, 4.0);
+    dashGeo.rotateX(-Math.PI / 2);
+
+    for (let z = -340; z <= 60; z += 12) {
+      [-4.4, 0, 4.4].forEach(lx => {
+        const d = new THREE.Mesh(dashGeo, lx === 0 ? centerMat : dashMat);
+        d.position.set(lx, 0.025, z);
+        worldGroup.add(d);
+        laneDashes.push(d);
+      });
+    }
+
+    // Glowing Pixelated LED Banner Texture Generator
+    function createPixelBannerTexture(message, primaryColor = '#ff6b00', accentColor = '#00f0ff') {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 96;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = '#050811';
+      ctx.fillRect(0, 0, 512, 96);
+
+      ctx.fillStyle = primaryColor;
+      for (let x = 0; x < 512; x += 8) {
+        ctx.fillRect(x, 2, 5, 5);
+        ctx.fillRect(x, 89, 5, 5);
+      }
+
+      ctx.fillStyle = accentColor;
+      for (let row = 0; row < 6; row++) {
+        const offset = Math.abs(2.5 - row) * 8;
+        ctx.fillRect(20 + offset, 22 + row * 9, 10, 6);
+        ctx.fillRect(480 - offset, 22 + row * 9, 10, 6);
+      }
+
+      ctx.font = '900 30px Orbitron, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = primaryColor;
+      ctx.fillText(message, 256, 48);
+
+      // LED Matrix Grid Overlay
+      ctx.fillStyle = 'rgba(5, 8, 17, 0.48)';
+      for (let x = 0; x < 512; x += 4) ctx.fillRect(x, 0, 1, 96);
+      for (let y = 0; y < 96; y += 4) ctx.fillRect(0, y, 512, 1);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.magFilter = THREE.NearestFilter;
+      return tex;
+    }
+
+    const PIXEL_MESSAGES = [
+      { text: 'APEX NIGHT // 420 KM/H', c1: '#f97316', c2: '#38bdf8' },
+      { text: '>>> NITRO ZONE AHEAD >>>', c1: '#22c55e', c2: '#facc15' },
+      { text: 'POLICE INTERCEPTOR ZONE', c1: '#ef4444', c2: '#3b82f6' },
+      { text: 'GREEN BAYS = HIDEOUTS', c1: '#10b981', c2: '#f8fafc' }
+    ];
+
+    const pixelGantries = [];
+    const gantrySteelMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.3 });
+
+    for (let i = 0; i < 4; i++) {
+      const gantry = new THREE.Group();
+      gantry.position.set(0, 0, -95 - i * 110);
+
+      [-ROAD_WIDTH / 2 - 0.5, ROAD_WIDTH / 2 + 0.5].forEach(px => {
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 7.6, 0.55), gantrySteelMat);
+        pillar.position.set(px, 3.8, 0);
+        gantry.add(pillar);
+      });
+
+      const msgObj = PIXEL_MESSAGES[i % PIXEL_MESSAGES.length];
+      const tex = createPixelBannerTexture(msgObj.text, msgObj.c1, msgObj.c2);
+      const signMat = new THREE.MeshBasicMaterial({ map: tex });
+      const signBox = new THREE.Mesh(new THREE.BoxGeometry(ROAD_WIDTH + 1.2, 2.2, 0.45), [
+        gantrySteelMat, gantrySteelMat, gantrySteelMat, gantrySteelMat, signMat, signMat
+      ]);
+      signBox.position.set(0, 6.8, 0);
+      gantry.add(signBox);
+
+      const bannerLight = new THREE.PointLight(new THREE.Color(msgObj.c1), 2.2, 26);
+      bannerLight.position.set(0, 5.2, 0);
+      gantry.add(bannerLight);
+
+      worldGroup.add(gantry);
+      pixelGantries.push(gantry);
+    }
+
+    // Articulated Roadside Pedestrians & Shopkeepers
+    const SHIRT_COLORS = [0xef4444, 0x3b82f6, 0xf59e0b, 0x10b981, 0xa855f7, 0xf8fafc, 0xec4899];
+    const SKIN_TONES = [0x8d5524, 0xc68642, 0xe0ac69, 0x5c3818, 0xf1c27d];
+
+    function createArticulatedPerson(idx = 0) {
+      const person = new THREE.Group();
+      const shirtMat = new THREE.MeshStandardMaterial({ color: SHIRT_COLORS[idx % SHIRT_COLORS.length], roughness: 0.75 });
+      const pantsMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85 });
+      const skinMat = new THREE.MeshStandardMaterial({ color: SKIN_TONES[idx % SKIN_TONES.length], roughness: 0.65 });
+
+      const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.74, 0.16), pantsMat);
+      leftLeg.position.set(-0.12, 0.37, 0);
+      const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.74, 0.16), pantsMat);
+      rightLeg.position.set(0.12, 0.37, 0);
+      person.add(leftLeg, rightLeg);
+
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.64, 0.24), shirtMat);
+      torso.position.set(0, 1.04, 0);
+      person.add(torso);
+
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.28, 0.26), skinMat);
+      head.position.set(0, 1.52, 0);
+      person.add(head);
+
+      const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.56, 0.13), skinMat);
+      leftArm.position.set(-0.30, 1.04, 0);
+      const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.56, 0.13), skinMat);
+      rightArm.position.set(0.30, 1.04, 0);
+      person.add(leftArm, rightArm);
+
+      return { mesh: person, leftLeg, rightLeg, leftArm, rightArm, phase: idx * 1.1, knockedTimer: 0 };
+    }
+
+    const SHOP_THEMES = [
+      { title: '24/7 APEX MART', signColor: '#10b981', wallColor: 0x1e293b },
+      { title: 'NIGHT SUYA & GRILL', signColor: '#f97316', wallColor: 0x292524 },
+      { title: 'NITRO TUNING BAY', signColor: '#38bdf8', wallColor: 0x0f172a },
+      { title: 'DARK ALLEY HIDEOUT', signColor: '#a855f7', wallColor: 0x18181b }
+    ];
+
+    const roadsideShops = [];
+    const pedestrians = [];
+
+    for (let i = 0; i < 6; i++) {
+      const zPos = -75 - i * 75;
+      const side = i % 2 === 0 ? 1 : -1;
+      const theme = SHOP_THEMES[i % SHOP_THEMES.length];
+
+      const shopGroup = new THREE.Group();
+      shopGroup.position.set(side * (ROAD_WIDTH / 2 + 4.8), 0.14, zPos);
+
+      const building = new THREE.Mesh(
+        new THREE.BoxGeometry(5.2, 4.4, 11.0),
+        new THREE.MeshStandardMaterial({ color: theme.wallColor, roughness: 0.75 })
+      );
+      building.position.set(side * 1.2, 2.2, 0);
+      shopGroup.add(building);
+
+      const glassFront = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 2.4, 8.5),
+        new THREE.MeshStandardMaterial({ color: 0xfef3c7, emissive: new THREE.Color(theme.signColor), emissiveIntensity: 0.85 })
+      );
+      glassFront.position.set(-side * 1.35, 1.5, 0);
+      shopGroup.add(glassFront);
+
+      const shopTex = createPixelBannerTexture(theme.title, theme.signColor, '#ffffff');
+      const shopSign = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35, 1.1, 9.2),
+        new THREE.MeshBasicMaterial({ map: shopTex })
+      );
+      shopSign.position.set(-side * 1.4, 3.6, 0);
+      shopGroup.add(shopSign);
+
+      // Glowing Green Pull-Off Safe Hideout Bay
+      const safeBay = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.4, 16.0),
+        new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.44 })
+      );
+      safeBay.rotation.x = -Math.PI / 2;
+      safeBay.position.set(-side * 5.8, -0.11, 0);
+      shopGroup.add(safeBay);
+
+      for (let p = 0; p < 3; p++) {
+        const person = createArticulatedPerson(i * 3 + p);
+        const px = -side * (2.2 + p * 0.85);
+        const pz = -3.0 + p * 3.0;
+        person.mesh.position.set(px, 0, pz);
+        person.mesh.rotation.y = side === 1 ? -Math.PI / 2 : Math.PI / 2;
+        shopGroup.add(person.mesh);
+        pedestrians.push({ person, shopGroup, localX: px, localZ: pz, side, isShopper: p < 2 });
+      }
+
+      worldGroup.add(shopGroup);
+      roadsideShops.push({
+        group: shopGroup,
+        side,
+        bayX: side * (ROAD_WIDTH / 2 - 1.2),
+        title: theme.title
+      });
+    }
+
+    // =========================================================================
+    // 7. POLICE ROADBLOCKS & SPIKE STRIP OBSTACLES (4–5 STARS ESCALATION)
+    // =========================================================================
+    const roadblockGroup = new THREE.Group();
+    roadblockGroup.visible = false;
+    scene.add(roadblockGroup);
+
+    const roadblockData = {
+      active: false,
+      distanceMeters: 0,
+      gapLaneIndex: 2
+    };
+
+    // Build 2 Police Cruisers + Glowing Warning Beacons + Spike Strip leaving 1 navigable lane gap
+    const rbCop1 = createPBRSupercar({ isPolice: true, carKey: 'amggt63' });
+    const rbCop2 = createPBRSupercar({ isPolice: true, carKey: 'amggt63' });
+    rbCop1.mesh.rotation.y = Math.PI / 2.4;
+    rbCop2.mesh.rotation.y = -Math.PI / 2.4;
+    roadblockGroup.add(rbCop1.mesh, rbCop2.mesh);
+
+    const warningFlareMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+    const warningFlares = [];
+    for (let f = 0; f < 6; f++) {
+      const flare = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.55, 8), warningFlareMat);
+      roadblockGroup.add(flare);
+      warningFlares.push(flare);
+    }
+
+    const spikeStripMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(8.5, 0.14, 0.75),
+      new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xef4444, emissiveIntensity: 1.5 })
+    );
+    spikeStripMesh.position.y = 0.08;
+    roadblockGroup.add(spikeStripMesh);
+
+    function spawnPoliceRoadblockAhead(playerDist) {
+      roadblockData.active = true;
+      roadblockData.distanceMeters = playerDist + 195;
+      roadblockData.gapLaneIndex = Math.floor(Math.random() * 4);
+      roadblockGroup.visible = true;
+
+      // Place the two blocking police cars & spike strip in the 3 non-gap lanes
+      const blockedLanes = [0, 1, 2, 3].filter(l => l !== roadblockData.gapLaneIndex);
+      rbCop1.mesh.position.set(LANE_CENTERS[blockedLanes[0]], 0, 0);
+      rbCop2.mesh.position.set(LANE_CENTERS[blockedLanes[2]], 0, 0);
+      spikeStripMesh.position.x = LANE_CENTERS[blockedLanes[1]];
+
+      warningFlares.forEach((fl, idx) => {
+        fl.position.set(LANE_CENTERS[blockedLanes[idx % 3]] + (idx > 2 ? 1.2 : -1.2), 0.28, 3.5);
+      });
+
+      showToast(`⚠️ POLICE ROADBLOCK & SPIKE STRIP AHEAD — WEAVE INTO LANE ${roadblockData.gapLaneIndex + 1}!`);
+    }
+
+    // =========================================================================
+    // 8. WORLD LIGHTING THEMES & POLICE STROBE REFLECTION LIGHTS
+    // =========================================================================
+    const WORLD_THEMES = {
+      night_neon:   { sky: 0x050814, fog: 0x070b1a, sunColor: 0x60a5fa, sunInt: 0.75, ambColor: 0x3b82f6, road: 0x111827, ground: 0x050811, lights: true },
+      sunset_coast: { sky: 0xea580c, fog: 0xf97316, sunColor: 0xffedd5, sunInt: 1.45, ambColor: 0xfed7aa, road: 0x1e2430, ground: 0x0284c7, lights: false },
+      downtown:     { sky: 0x090d1f, fog: 0x111827, sunColor: 0xc084fc, sunInt: 0.85, ambColor: 0x818cf8, road: 0x111827, ground: 0x090d16, lights: true },
+      canyon:       { sky: 0xb45309, fog: 0xd97706, sunColor: 0xfef3c7, sunInt: 1.45, ambColor: 0xfde68a, road: 0x292524, ground: 0x9a3412, lights: false }
+    };
+
+    // Real Red & Blue Strobe PointLights that reflect onto asphalt, guardrails & hypercar rear
+    const strobeRedLight = new THREE.PointLight(0xef4444, 0, 32);
+    const strobeBlueLight = new THREE.PointLight(0x3b82f6, 0, 32);
+    scene.add(strobeRedLight, strobeBlueLight);
+
+    function applyWorldTheme(key) {
+      const t = WORLD_THEMES[key] || WORLD_THEMES.night_neon;
+      scene.background = new THREE.Color(t.sky);
+      scene.fog.color.setHex(t.fog);
+      sunLight.color.setHex(t.sunColor);
+      sunLight.intensity = t.sunInt;
+      ambientLight.color.setHex(t.ambColor);
+      roadMat.color.setHex(t.road);
+      groundMat.color.setHex(t.ground);
+      setHeadlights(t.lights);
+    }
+
+    function setHeadlights(on) {
+      state.headlightsOn = on;
+      player1.carObj.setHeadlights(on);
+      document.getElementById('btn-headlights').classList.toggle('bg-amber-500/25', on);
+    }
+
+    // =========================================================================
+    // 9. GAME STATE, SMOOTH EXPONENTIAL LANE DAMPING & POLICE PURSUIT AI
+    // =========================================================================
+    const state = {
+      targetKm: 25.0,
+      worldKey: 'night_neon',
+      unit: 'KMH',
+      headlightsOn: true,
+      steerSensitivity: profile.steerSensitivity || 1.1,
+
+      raceActive: false,
+      paused: false,
+      finished: false,
+      finishStopping: false,
+      raceTime: 0,
+      topSpeedKmh: 0,
+
+      // Gear & Throttle tracking for Exhaust Backfire Flames
+      currentGear: 0,
+      wasGasHeld: false,
+      backfireCooldown: 0,
+
+      // Police Heat & Pursuit State
+      wantedStars: 0,
+      wantedHeatPoints: 0,
+      inSafeBay: false,
+      hideoutProgress: 0,
+      isHiddenStealth: false,
+      speedRadarCooldown: 0,
+      roadblockCooldown: 0
+    };
+
+    const player1 = {
+      carObj: createPBRSupercar({
+        carKey: profile.car,
+        rimStyle: profile.rimStyle,
+        paintColor: profile.paintColor,
+        paintFinish: profile.paintFinish,
+        underglow: profile.underglow,
+        avatarType: profile.avatar,
+        suitColor: profile.suitColor,
+        isPlayer: true
+      }),
+      laneIndex: 1,
+      x: LANE_CENTERS[1],
+      prevX: LANE_CENTERS[1],
+      vx: 0,
+      rollAngle: 0,
+      yawAngle: 0,
+      speedMs: 0,
+      distanceMeters: 0,
+      health: 100,
+      nitro: 100
+    };
+    scene.add(player1.carObj.mesh);
+
+    // Competitive Overtaking Rivals
+    const aiRivals = [];
+    const RIVAL_ROSTER = [
+      { carKey: 'sf90', baseKmh: 305 },
+      { carKey: 'terzo', baseKmh: 325 },
+      { carKey: 'gt3rs', baseKmh: 295 },
+      { carKey: 'amggt63', baseKmh: 288 }
+    ];
+
+    function spawnRivals() {
+      while (aiRivals.length > 0) scene.remove(aiRivals.pop().carObj.mesh);
+      RIVAL_ROSTER.forEach((def, i) => {
+        const carObj = createPBRSupercar({ carKey: def.carKey, isPlayer: false });
+        const lane = i % 4;
+        const startDist = 38 + i * 44;
+        carObj.mesh.position.set(LANE_CENTERS[lane], 0, -startDist);
+        scene.add(carObj.mesh);
+
+        aiRivals.push({
+          carObj,
+          laneIndex: lane,
+          x: LANE_CENTERS[lane],
+          vx: 0,
+          distanceMeters: startDist,
+          speedMs: (def.baseKmh * 0.85) / 3.6,
+          baseSpeedMs: def.baseKmh / 3.6,
+          decisionTimer: 1.0 + i * 0.6
+        });
+      });
+    }
+
+    // Tactical Police Interceptors
+    const policeCars = [];
+    function clearPolice() {
+      while (policeCars.length > 0) scene.remove(policeCars.pop().carObj.mesh);
+    }
+
+    function syncPoliceCount(targetCount) {
+      while (policeCars.length < targetCount) {
+        const copCar = createPBRSupercar({ isPolice: true, carKey: 'amggt63' });
+        const spawnBehind = policeCars.length % 2 === 0;
+        const dist = player1.distanceMeters + (spawnBehind ? -42 - policeCars.length * 14 : 68 + policeCars.length * 18);
+        const lane = (player1.laneIndex + (policeCars.length % 2 === 0 ? 1 : -1) + 4) % 4;
+        copCar.mesh.position.set(LANE_CENTERS[lane], 0, -(dist - player1.distanceMeters));
+        scene.add(copCar.mesh);
+        policeCars.push({
+          carObj: copCar,
+          x: LANE_CENTERS[lane],
+          vx: 0,
+          distanceMeters: dist,
+          speedMs: player1.speedMs,
+          tacticRole: policeCars.length === 0 ? 'pit_chaser' : 'blocker'
+        });
+      }
+      while (policeCars.length > targetCount) {
+        scene.remove(policeCars.pop().carObj.mesh);
+      }
+    }
+
+    function addWantedHeat(points, reasonMsg) {
+      if (state.isHiddenStealth) return;
+      const prevStars = state.wantedStars;
+      state.wantedHeatPoints = Math.min(100, state.wantedHeatPoints + points);
+      state.wantedStars = Math.min(5, Math.ceil(state.wantedHeatPoints / 20));
+
+      if (state.wantedStars > prevStars) {
+        const modeLabel = state.wantedStars <= 2 ? 'WAIL SIREN' : state.wantedStars <= 4 ? 'YELP + HORN' : 'HI-LO PHASER ALARM';
+        showToast(`🚨 ${reasonMsg} — ${state.wantedStars}★ (${modeLabel})!`);
+      }
+      syncPoliceCount(Math.min(3, state.wantedStars));
+    }
+
+    function clearWantedHeat(bonusMsg) {
+      state.wantedHeatPoints = 0;
+      state.wantedStars = 0;
+      state.isHiddenStealth = false;
+      state.hideoutProgress = 0;
+      roadblockData.active = false;
+      roadblockGroup.visible = false;
+      document.getElementById('siren-overlay').classList.add('hidden');
+      strobeRedLight.intensity = 0;
+      strobeBlueLight.intensity = 0;
+      clearPolice();
+      audio.playSuccessChime();
+      showToast(bonusMsg);
+    }
+
+    // Sparks Pool
+    const sparks = [];
+    const sparkGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
+    const sparkMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+    for (let i = 0; i < 36; i++) {
+      const m = new THREE.Mesh(sparkGeo, sparkMat);
+      m.visible = false;
+      scene.add(m);
+      sparks.push({ mesh: m, vx: 0, vy: 0, vz: 0, life: 0 });
+    }
+    function emitSparks(x, z) {
+      let n = 0;
+      for (const s of sparks) {
+        if (s.life <= 0) {
+          s.mesh.position.set(x, 0.55, z);
+          s.vx = (Math.random() - 0.5) * 14;
+          s.vy = 2.5 + Math.random() * 5;
+          s.vz = (Math.random() - 0.5) * 14;
+          s.life = 0.35;
+          s.mesh.visible = true;
+          if (++n >= 14) break;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 10. KEYBOARD & TOUCH CONTROLS + PAUSE TOGGLE
+    // =========================================================================
+    const keys = {};
+    const touch = { left: false, right: false, gas: false, brake: false, nitro: false };
+
+    function shiftPlayerLane(dir) {
+      if (!state.raceActive || state.paused || state.finished) return;
+      player1.laneIndex = Math.max(0, Math.min(3, player1.laneIndex + dir));
+    }
+
+    function togglePause() {
+      if (!state.raceActive || state.finished) return;
+      state.paused = !state.paused;
+      const modal = document.getElementById('pause-modal');
+      if (state.paused) {
+        audio.stopAll(0.15);
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      } else {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        audio.startEngine();
+      }
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+        e.preventDefault();
+      }
+      const firstPress = !keys[e.code];
+      keys[e.code] = true;
+
+      if (firstPress) {
+        if (e.code === 'KeyA' || e.code === 'ArrowLeft') shiftPlayerLane(-1);
+        if (e.code === 'KeyD' || e.code === 'ArrowRight') shiftPlayerLane(1);
+        if (e.code === 'KeyH') setHeadlights(!state.headlightsOn);
+        if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
+      }
+    }, { passive: false });
+
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+    window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+    function bindTouch(id, prop, onTap = null) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const start = (e) => {
+        e.preventDefault();
+        touch[prop] = true;
+        audio.init();
+        if (onTap) onTap();
+      };
+      const end = (e) => { e.preventDefault(); touch[prop] = false; };
+      el.addEventListener('touchstart', start, { passive: false });
+      el.addEventListener('touchend', end, { passive: false });
+      el.addEventListener('mousedown', start);
+      el.addEventListener('mouseup', end);
+    }
+    bindTouch('touch-left', 'left', () => shiftPlayerLane(-1));
+    bindTouch('touch-right', 'right', () => shiftPlayerLane(1));
+    bindTouch('touch-gas', 'gas');
+    bindTouch('touch-brake', 'brake');
+    bindTouch('touch-nitro', 'nitro');
+
+    // Showroom 360° Interactive Orbit Drag
+    let showroomAngle = 0.65;
+    let isDraggingShowroom = false;
+    let lastDragX = 0;
+
+    renderer.domElement.addEventListener('mousedown', (e) => {
+      if (!state.raceActive) { isDraggingShowroom = true; lastDragX = e.clientX; }
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (isDraggingShowroom && !state.raceActive) {
+        showroomAngle += (e.clientX - lastDragX) * 0.012;
+        lastDragX = e.clientX;
+      }
+    });
+    window.addEventListener('mouseup', () => { isDraggingShowroom = false; });
+
+    // =========================================================================
+    // 11. SOLID VEHICLE COLLISION PHYSICS
+    // =========================================================================
+    const HALF_W = 1.06;
+    const HALF_L = 2.36;
+
+    function resolveVehicleCollision(a, distA, b, distB, armorA = 1.0) {
+      const dx = a.x - b.x;
+      const dz = distA - distB;
+      const ovX = (HALF_W * 2) - Math.abs(dx);
+      const ovZ = (HALF_L * 2) - Math.abs(dz);
+
+      if (ovX > 0 && ovZ > 0) {
+        const midX = (a.x + b.x) * 0.5;
+        const midZ = -((distA - player1.distanceMeters) + (distB - player1.distanceMeters)) * 0.5;
+
+        if (ovX < ovZ) {
+          const dir = dx >= 0 ? 1 : -1;
+          a.x += dir * ovX * 0.58;
+          b.x -= dir * ovX * 0.58;
+          a.vx += dir * 6.5;
+          b.vx -= dir * 6.5;
+          a.speedMs *= 0.94;
+          if (a.carObj && a.carObj.applyScratch) a.carObj.applyScratch(dir > 0 ? 'left' : 'right');
+        } else {
+          if (dz < 0) {
+            a.distanceMeters = distB - (HALF_L * 2 + 0.06);
+            a.speedMs = Math.max(0, b.speedMs * 0.72);
+            b.speedMs *= 1.12;
+          } else {
+            b.distanceMeters = distA - (HALF_L * 2 + 0.06);
+            b.speedMs = Math.max(0, a.speedMs * 0.72);
+          }
+          if (typeof a.health === 'number') {
+            a.health = Math.max(15, a.health - (6 / armorA));
+          }
+        }
+        emitSparks(midX, midZ);
+        audio.playCrash(0.85);
+      }
+    }
+
+    // =========================================================================
+    // 12. REBUILD CAR, START RACE & FINISH SEQUENCE
+    // =========================================================================
+    function rebuildPlayerCar() {
+      const pos = player1.carObj.mesh.position.clone();
+      scene.remove(player1.carObj.mesh);
+      player1.carObj = createPBRSupercar({
+        carKey: profile.car,
+        rimStyle: profile.rimStyle,
+        paintColor: profile.paintColor,
+        paintFinish: profile.paintFinish,
+        underglow: profile.underglow,
+        avatarType: profile.avatar,
+        suitColor: profile.suitColor,
+        isPlayer: true
+      });
+      player1.carObj.mesh.position.copy(pos);
+      player1.carObj.setHeadlights(state.headlightsOn);
+      scene.add(player1.carObj.mesh);
+
+      const spec = CAR_ROSTER[profile.car] || CAR_ROSTER.chiron;
+      document.getElementById('showroom-car-title').textContent = spec.title;
+      document.getElementById('showroom-car-desc').textContent = spec.desc;
+      audio.applyCarVoice(profile.car);
+    }
+
+    function startRace() {
+      audio.init();
+      audio.stopAll(0.05);
+
+      state.raceActive = true;
+      state.paused = false;
+      state.finished = false;
+      state.finishStopping = false;
+      state.raceTime = 0;
+      state.topSpeedKmh = 0;
+      state.currentGear = 0;
+      state.wantedStars = 0;
+      state.wantedHeatPoints = 0;
+      state.inSafeBay = false;
+      state.hideoutProgress = 0;
+      state.isHiddenStealth = false;
+      state.speedRadarCooldown = 0;
+      state.roadblockCooldown = 0;
+      roadblockData.active = false;
+      roadblockGroup.visible = false;
+
+      document.getElementById('siren-overlay').classList.add('hidden');
+      document.getElementById('nitro-overlay').style.opacity = '0';
+      document.getElementById('hideout-banner').classList.add('hidden');
+      document.getElementById('pause-modal').classList.add('hidden');
+      document.getElementById('pause-modal').classList.remove('flex');
+
+      applyWorldTheme(state.worldKey);
+      rebuildPlayerCar();
+
+      player1.laneIndex = 1;
+      player1.x = LANE_CENTERS[1];
+      player1.prevX = LANE_CENTERS[1];
+      player1.vx = 0;
+      player1.rollAngle = 0;
+      player1.yawAngle = 0;
+      player1.speedMs = 0;
+      player1.distanceMeters = 0;
+      player1.health = 100;
+      player1.nitro = 100;
+      player1.carObj.resetScratches();
+      player1.carObj.setBraking(false, 0);
+      player1.carObj.mesh.position.set(player1.x, 0, 0);
+      player1.carObj.mesh.rotation.set(0, 0, 0);
+
+      camera.position.set(player1.x, 3.6, 8.2);
+      clearPolice();
+      spawnRivals();
+
+      document.getElementById('main-menu').classList.add('hidden');
+      document.getElementById('finish-modal').classList.add('hidden');
+      document.getElementById('finish-modal').classList.remove('flex');
+      document.getElementById('race-hud').classList.remove('hidden');
+      document.getElementById('btn-open-menu').classList.remove('hidden');
+      document.getElementById('btn-pause-race').classList.remove('hidden');
+      document.getElementById('hud-goal-label').textContent = state.targetKm >= 9000 ? 'ENDLESS' : `${state.targetKm} KM`;
+
+      audio.startEngine();
+    }
+
+    function finishHighwayRun() {
+      if (state.finished) return;
+      state.finished = true;
+      state.finishStopping = true;
+      audio.stopAll(0.35);
+      audio.playSuccessChime();
+      saveProfile();
+
+      let rank = 1;
+      aiRivals.forEach(r => { if (r.distanceMeters > player1.distanceMeters) rank++; });
+      const ord = rank === 1 ? '1ST' : rank === 2 ? '2ND' : rank === 3 ? '3RD' : `${rank}TH`;
+      const tripKm = player1.distanceMeters / 1000;
+
+      document.getElementById('finish-title').textContent = `${ord} PLACE FINISH!`;
+      document.getElementById('res-dist').textContent = `${tripKm.toFixed(1)} KM`;
+      document.getElementById('res-top-speed').textContent = `${Math.round(state.topSpeedKmh)} km/h`;
+      document.getElementById('res-odo').textContent = `${profile.totalOdoKm.toFixed(1)} KM`;
+
+      setTimeout(() => {
+        if (!state.finished) return;
+        const modal = document.getElementById('finish-modal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      }, 1150);
+    }
+
+    // =========================================================================
+    // 13. MAIN SIMULATION STEP (EXPONENTIAL LANE DAMPING, BACKFIRES & PURSUIT)
+    // =========================================================================
+    function updateSimulation(dt) {
+      const spec = CAR_ROSTER[profile.car] || CAR_ROSTER.chiron;
+
+      const gas = !!keys['KeyW'] || !!keys['ArrowUp'] || touch.gas;
+      const brake = !!keys['KeyS'] || !!keys['ArrowDown'] || touch.brake;
+      const nitroHeld = (!!keys['ShiftLeft'] || !!keys['ShiftRight'] || !!keys['Space'] || touch.nitro) && player1.nitro > 2 && gas;
+
+      const maxSpeedMs = (spec.maxKmh * (nitroHeld ? 1.14 : 1.0)) / 3.6;
+
+      // 1. Acceleration & Full-Stop Braking (0.0 KM/H)
+      if (state.finishStopping) {
+        player1.speedMs = Math.max(0, player1.speedMs - 45 * dt);
+        player1.carObj.setBraking(player1.speedMs > 0.2, player1.speedMs * 3.6);
+      } else if (state.raceActive) {
+        state.raceTime += dt;
+        if (brake) {
+          player1.speedMs = Math.max(0, player1.speedMs - spec.brake * dt);
+          player1.carObj.setBraking(true, player1.speedMs * 3.6);
+        } else if (gas) {
+          const boostMul = nitroHeld ? 1.48 : 1.0;
+          player1.speedMs = Math.min(maxSpeedMs, player1.speedMs + spec.accel * boostMul * dt);
+          player1.carObj.setBraking(false, player1.speedMs * 3.6);
+          if (nitroHeld) player1.nitro = Math.max(0, player1.nitro - 22 * dt);
+        } else {
+          player1.speedMs = Math.max(0, player1.speedMs - 8.5 * dt);
+          player1.carObj.setBraking(false, player1.speedMs * 3.6);
+        }
+        if (!nitroHeld) player1.nitro = Math.min(100, player1.nitro + 5.5 * dt);
+      }
+
+      const speedKmh = player1.speedMs * 3.6;
+      if (speedKmh > state.topSpeedKmh) state.topSpeedKmh = speedKmh;
+
+      // 2. Flaming Exhaust Backfires & Nitro Plasma Trail
+      const newGear = speedKmh < 1.5 ? 0 : Math.min(7, Math.floor(speedKmh / (spec.maxKmh / 7.2)) + 1);
+      if (state.backfireCooldown > 0) state.backfireCooldown -= dt;
+
+      // Trigger backfire flame burst on Upshift, Downshift, or High-RPM Throttle Release!
+      const shiftedGear = newGear !== state.currentGear && speedKmh > 40;
+      const liftedThrottleHighRpm = state.wasGasHeld && !gas && speedKmh > 130;
+
+      if ((shiftedGear || liftedThrottleHighRpm) && state.backfireCooldown <= 0) {
+        state.backfireCooldown = 0.22;
+        spawnExhaustFlames(player1.carObj, false);
+        audio.playBackfirePop(profile.car === 'bmwm5' || profile.car === 'gt3rs');
+      }
+      state.currentGear = newGear;
+      state.wasGasHeld = gas;
+
+      // Continuous Blue Plasma Flames & Speed Lines during Nitro
+      const nitroOverlay = document.getElementById('nitro-overlay');
+      if (nitroHeld && state.raceActive && !state.finished) {
+        spawnExhaustFlames(player1.carObj, true);
+        nitroOverlay.style.opacity = '1';
+      } else {
+        nitroOverlay.style.opacity = '0';
+      }
+
+      // 3. Buttery Smooth Frame-Rate-Independent Exponential Lane Damping + Suspension Roll & Yaw
+      const holdRight = !!keys['KeyD'] || !!keys['ArrowRight'] || touch.right;
+      const holdLeft = !!keys['KeyA'] || !!keys['ArrowLeft'] || touch.left;
+
+      let targetX = LANE_CENTERS[player1.laneIndex];
+      // Allow pulling onto outer green hideout bay shoulder when holding toward edge in Lane 1 or 4
+      if (player1.laneIndex === 3 && holdRight) targetX = ROAD_WIDTH / 2 - 0.85;
+      if (player1.laneIndex === 0 && holdLeft) targetX = -ROAD_WIDTH / 2 + 0.85;
+
+      // Exponential smoothing lambda scaled by user's Steering Sensitivity Slider (0.5x to 2.0x)
+      const dampingLambda = 7.5 * spec.baseAgility * state.steerSensitivity;
+      const alpha = 1 - Math.exp(-dampingLambda * dt);
+
+      player1.prevX = player1.x;
+      player1.x += (targetX - player1.x) * alpha;
+      player1.vx = (player1.x - player1.prevX) / Math.max(0.001, dt);
+
+      // Dynamic Suspension Body Roll (Z-axis) & Nose/Wheel Yaw (Y-axis up to 10 degrees = 0.175 rad)
+      const targetYaw = Math.max(-0.175, Math.min(0.175, -player1.vx * 0.015));
+      const targetRoll = Math.max(-0.11, Math.min(0.11, player1.vx * 0.011));
+      const bodySpring = 1 - Math.exp(-12 * dt);
+
+      player1.yawAngle += (targetYaw - player1.yawAngle) * bodySpring;
+      player1.rollAngle += (targetRoll - player1.rollAngle) * bodySpring;
+
+      const stepMeters = player1.speedMs * dt;
+      player1.distanceMeters += stepMeters;
+      profile.totalOdoKm += stepMeters / 1000;
+
+      player1.carObj.mesh.position.x = player1.x;
+      player1.carObj.mesh.rotation.y = player1.yawAngle;
+      player1.carObj.mesh.rotation.z = player1.rollAngle;
+      player1.carObj.frontPivots.forEach(p => { p.rotation.y = player1.yawAngle * 1.65; });
+      player1.carObj.wheels.forEach(w => { w.rotation.x -= stepMeters * 2.5; });
+
+      // 4. Competitive Overtaking Rivals
+      aiRivals.forEach((rival) => {
+        rival.decisionTimer -= dt;
+        const relMeters = rival.distanceMeters - player1.distanceMeters;
+
+        if (rival.decisionTimer <= 0) {
+          rival.decisionTimer = 0.95 + Math.random() * 1.1;
+          if (relMeters < 20 && relMeters > -35 && rival.laneIndex === player1.laneIndex) {
+            const altLanes = [0, 1, 2, 3].filter(l => l !== player1.laneIndex);
+            rival.laneIndex = altLanes[Math.floor(Math.random() * altLanes.length)];
+          } else if (Math.random() < 0.35) {
+            rival.laneIndex = Math.floor(Math.random() * 4);
+          }
+        }
+
+        const rTargetX = LANE_CENTERS[rival.laneIndex];
+        rival.x += (rTargetX - rival.x) * (1 - Math.exp(-6.5 * dt));
+
+        let desiredSpeed = rival.baseSpeedMs;
+        if (relMeters < -15) desiredSpeed = Math.max(rival.baseSpeedMs * 1.12, player1.speedMs + 14);
+        else if (relMeters > 95) desiredSpeed = Math.max(rival.baseSpeedMs * 0.85, player1.speedMs * 0.94);
+
+        rival.speedMs += (desiredSpeed - rival.speedMs) * (1 - Math.exp(-2.4 * dt));
+        rival.distanceMeters += rival.speedMs * dt;
+
+        if (state.targetKm >= 9000 && rival.distanceMeters < player1.distanceMeters - 90) {
+          rival.distanceMeters = player1.distanceMeters + 165 + Math.random() * 80;
+        }
+
+        const relZ = -(rival.distanceMeters - player1.distanceMeters);
+        rival.carObj.mesh.position.set(rival.x, 0, relZ);
+        rival.carObj.wheels.forEach(w => { w.rotation.x -= rival.speedMs * dt * 2.5; });
+
+        resolveVehicleCollision(player1, player1.distanceMeters, rival, rival.distanceMeters, spec.armor);
+      });
+
+      // 5. Smarter Tactical Police Pursuit AI, Roadblocks & Strobe Reflections
+      if (state.speedRadarCooldown > 0) state.speedRadarCooldown -= dt;
+      if (speedKmh > 255 && state.wantedStars === 0 && state.speedRadarCooldown <= 0 && !state.isHiddenStealth) {
+        state.speedRadarCooldown = 16;
+        addWantedHeat(22, 'SPEED RADAR CLOCKED ' + Math.round(speedKmh) + ' KM/H');
+      }
+
+      // Escalate Heat during active chase & spawn Roadblocks at 4-5 Stars
+      if (state.wantedStars > 0 && !state.isHiddenStealth) {
+        state.wantedHeatPoints = Math.min(100, state.wantedHeatPoints + 1.4 * dt);
+        state.wantedStars = Math.min(5, Math.ceil(state.wantedHeatPoints / 20));
+        syncPoliceCount(Math.min(3, state.wantedStars));
+
+        if (state.roadblockCooldown > 0) state.roadblockCooldown -= dt;
+        if (state.wantedStars >= 4 && !roadblockData.active && state.roadblockCooldown <= 0) {
+          state.roadblockCooldown = 22;
+          spawnPoliceRoadblockAhead(player1.distanceMeters);
+        }
+      }
+
+      // Update Active Police Roadblock & Spike Strip
+      if (roadblockData.active) {
+        const relRbZ = -(roadblockData.distanceMeters - player1.distanceMeters);
+        roadblockGroup.position.z = relRbZ;
+
+        if (Math.abs(relRbZ) < 2.2) {
+          // Check if player successfully threaded the narrow gap lane!
+          const gapX = LANE_CENTERS[roadblockData.gapLaneIndex];
+          if (Math.abs(player1.x - gapX) > 2.05) {
+            player1.speedMs *= 0.48;
+            player1.health = Math.max(15, player1.health - 22);
+            emitSparks(player1.x, 0);
+            audio.playCrash(1.3);
+            showToast('💥 HIT POLICE SPIKE STRIP & BARRICADE!');
+          } else {
+            showToast('🔥 CLEAN THREAD! EVADED POLICE ROADBLOCK!');
+          }
+          roadblockData.active = false;
+          roadblockGroup.visible = false;
+        } else if (relRbZ > 25) {
+          roadblockData.active = false;
+          roadblockGroup.visible = false;
+        }
+      }
+
+      // Tactical Interceptor Movement, PIT Maneuvers & Strobe Reflections
+      let closestCopDist = 999;
+      const strobePhase = Math.floor(performance.now() / 135) % 2 === 0;
+
+      policeCars.forEach((cop, idx) => {
+        if (cop.carObj.redBeacon && cop.carObj.blueBeacon) {
+          cop.carObj.redBeacon.visible = strobePhase;
+          cop.carObj.blueBeacon.visible = !strobePhase;
+        }
+
+        const relCop = cop.distanceMeters - player1.distanceMeters;
+        const absDist = Math.abs(relCop);
+        if (absDist < closestCopDist) closestCopDist = absDist;
+
+        if (state.isHiddenStealth) {
+          // Player is hidden inside Green Roadside Bay — cops blast past unaware!
+          cop.speedMs = 74;
+          cop.distanceMeters += cop.speedMs * dt;
+        } else {
+          // Tactical tracking: primary interceptor tracks player lane closely & nudges for PIT maneuver!
+          let targetCopX = player1.x;
+          if (absDist < 7.5 && state.wantedStars >= 3) {
+            // Side-by-side PIT maneuver nudge
+            targetCopX = player1.x + (idx % 2 === 0 ? -1.85 : 1.85);
+          } else {
+            targetCopX = player1.x + (idx % 2 === 0 ? -2.3 : 2.3);
+          }
+          targetCopX = Math.max(-7.5, Math.min(7.5, targetCopX));
+          cop.x += (targetCopX - cop.x) * (1 - Math.exp(-5.2 * dt));
+
+          // Boost speed to catch up or maintain aggressive pressure
+          const chaseTargetSpeed = relCop < -3 ? player1.speedMs + 18 : Math.max(24, player1.speedMs + 3);
+          cop.speedMs += (chaseTargetSpeed - cop.speedMs) * (1 - Math.exp(-3.2 * dt));
+          cop.distanceMeters += cop.speedMs * dt;
+
+          resolveVehicleCollision(player1, player1.distanceMeters, cop, cop.distanceMeters, spec.armor);
+        }
+
+        const relZ = -(cop.distanceMeters - player1.distanceMeters);
+        cop.carObj.mesh.position.set(cop.x, 0, relZ);
+        cop.carObj.wheels.forEach(w => { w.rotation.x -= cop.speedMs * dt * 2.5; });
+      });
+
+      // Red & Blue Strobe Reflections on Asphalt, Guardrails & Hypercar Rear + Close Screen Vignette
+      const sirenOverlay = document.getElementById('siren-overlay');
+      if (state.wantedStars > 0 && !state.isHiddenStealth && closestCopDist < 75) {
+        const proximityFactor = Math.max(0.2, (75 - closestCopDist) / 75);
+        strobeRedLight.position.set(player1.x - 2.5, 2.2, 4.2);
+        strobeBlueLight.position.set(player1.x + 2.5, 2.2, 4.2);
+        strobeRedLight.intensity = strobePhase ? 4.5 * proximityFactor : 0.1;
+        strobeBlueLight.intensity = !strobePhase ? 4.5 * proximityFactor : 0.1;
+
+        if (closestCopDist <= 30) sirenOverlay.classList.remove('hidden');
+        else sirenOverlay.classList.add('hidden');
+      } else {
+        strobeRedLight.intensity = 0;
+        strobeBlueLight.intensity = 0;
+        sirenOverlay.classList.add('hidden');
+      }
+
+      // 6. Scroll Road, Pixelated Banners, Roadside Shops & Sidewalk People
+      laneDashes.forEach(d => {
+        d.position.z += stepMeters;
+        if (d.position.z > 45) d.position.z -= 408;
+      });
+      pixelGantries.forEach(g => {
+        g.position.z += stepMeters;
+        if (g.position.z > 40) g.position.z -= 440;
+      });
+
+      let foundSafeBay = null;
+      roadsideShops.forEach(shop => {
+        shop.group.position.z += stepMeters;
+        if (shop.group.position.z > 45) shop.group.position.z -= 450;
+
+        if (Math.abs(shop.group.position.z) < 9.5 && Math.abs(player1.x - shop.bayX) < 2.4) {
+          foundSafeBay = shop;
+        }
+      });
+
+      const walkTime = performance.now() * 0.006;
+      pedestrians.forEach(ped => {
+        const p = ped.person;
+        if (p.knockedTimer > 0) {
+          p.knockedTimer -= dt;
+          p.mesh.rotation.x = Math.PI / 2;
+          if (p.knockedTimer <= 0) {
+            p.mesh.rotation.x = 0;
+            p.mesh.position.set(ped.localX, 0, ped.localZ);
+          }
+          return;
+        }
+
+        if (!ped.isShopper) {
+          const swing = Math.sin(walkTime + p.phase) * 0.45;
+          p.leftLeg.rotation.x = swing;
+          p.rightLeg.rotation.x = -swing;
+          p.leftArm.rotation.x = -swing;
+          p.rightArm.rotation.x = swing;
+          p.mesh.position.z = ped.localZ + Math.sin(walkTime * 0.35 + p.phase) * 2.2;
+        } else {
+          p.rightArm.rotation.x = -0.6 + Math.sin(walkTime + p.phase) * 0.25;
+        }
+
+        const worldZ = ped.shopGroup.position.z + p.mesh.position.z;
+        const worldX = ped.shopGroup.position.x + p.mesh.position.x;
+        if (Math.abs(worldZ) < 2.2 && Math.abs(player1.x - worldX) < 1.55 && player1.speedMs > 4) {
+          p.knockedTimer = 4.0;
+          p.mesh.position.x += ped.side * 1.8;
+          audio.playCrash(0.6);
+          addWantedHeat(60, 'PEDESTRIAN HIT! ALL UNITS PURSUING');
+        }
+      });
+
+      // 7. Clean Escape Mechanic at Green Roadside Hideout Bays
+      const hideoutBanner = document.getElementById('hideout-banner');
+      if (foundSafeBay) {
+        state.inSafeBay = true;
+        hideoutBanner.classList.remove('hidden');
+        document.getElementById('hideout-title').textContent = `🏪 ${foundSafeBay.title} — ${speedKmh < 3 ? 'STOPPED! COOLING SIRENS...' : 'BRAKE TO 0 KM/H TO HIDE!'}`;
+
+        if (speedKmh < 3.0) {
+          state.isHiddenStealth = true;
+          setHeadlights(false);
+          state.hideoutProgress = Math.min(100, state.hideoutProgress + 45 * dt);
+          document.getElementById('hideout-progress').style.width = `${Math.round(state.hideoutProgress)}%`;
+
+          if (state.hideoutProgress >= 100) {
+            player1.nitro = 100;
+            player1.health = 100;
+            player1.carObj.resetScratches();
+            state.hideoutProgress = 0;
+
+            if (state.wantedStars > 0) {
+              clearWantedHeat(`🕶️ PURSUIT EVADED AT ${foundSafeBay.title}! +500 BONUS & FULL REPAIR!`);
+            } else {
+              audio.playSuccessChime();
+              showToast(`⚡ NITRO & BODY RESTORED AT ${foundSafeBay.title}!`);
+            }
+          }
+        } else {
+          state.isHiddenStealth = false;
+          state.hideoutProgress = Math.max(0, state.hideoutProgress - 25 * dt);
+          document.getElementById('hideout-progress').style.width = `${Math.round(state.hideoutProgress)}%`;
+        }
+      } else {
+        state.inSafeBay = false;
+        state.isHiddenStealth = false;
+        state.hideoutProgress = 0;
+        hideoutBanner.classList.add('hidden');
+      }
+
+      // 8. Update Exhaust Flames & Sparks Particles
+      exhaustFlames.forEach(f => {
+        if (f.life > 0) {
+          f.life -= dt;
+          f.mesh.position.z += f.vz * dt;
+          f.mat.opacity = Math.max(0, f.life / f.maxLife);
+          if (f.life <= 0) f.mesh.visible = false;
+        }
+      });
+      if (exhaustFlashLight.intensity > 0) {
+        exhaustFlashLight.intensity = Math.max(0, exhaustFlashLight.intensity - 28 * dt);
+      }
+
+      sparks.forEach(s => {
+        if (s.life > 0) {
+          s.life -= dt;
+          s.vy -= 18 * dt;
+          s.mesh.position.x += s.vx * dt;
+          s.mesh.position.y += s.vy * dt;
+          s.mesh.position.z += s.vz * dt;
+          if (s.life <= 0) s.mesh.visible = false;
+        }
+      });
+
+      // 9. Spring-Damped Follow Camera with X-Axis Lag & Speed FOV
+      const targetFov = 59 + (speedKmh / spec.maxKmh) * 18 + (nitroHeld ? 5 : 0);
+      camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-6 * dt));
+      camera.updateProjectionMatrix();
+
+      const camSpringAlpha = 1 - Math.exp(-5.8 * dt);
+      camera.position.x += (player1.x * 0.62 - camera.position.x) * camSpringAlpha;
+      camera.position.y += (3.15 - camera.position.y) * camSpringAlpha;
+      camera.position.z += (7.6 - camera.position.z) * camSpringAlpha;
+      camera.lookAt(player1.x * 0.42, 1.15, -16);
+
+      // 10. Check Long-Distance Race Finish
+      const tripKm = player1.distanceMeters / 1000;
+      if (state.targetKm < 9000 && tripKm >= state.targetKm && !state.finished) {
+        finishHighwayRun();
+      }
+
+      // 11. Update Audio, HUD & Tactical Radar
+      const rpmNorm = Math.min(1, speedKmh / spec.maxKmh);
+      audio.update(speedKmh, rpmNorm, brake, state.wantedStars, closestCopDist, state.isHiddenStealth, state.raceActive && !state.finished);
+      updateHUD(speedKmh, rpmNorm, brake, tripKm);
+      drawRadar();
+    }
+
+    function updateHUD(speedKmh, rpmNorm, isBraking, tripKm) {
+      const disp = state.unit === 'MPH' ? Math.round(speedKmh * 0.621371) : Math.round(speedKmh);
+      document.getElementById('hud-speed').textContent = disp;
+      document.getElementById('hud-speed-unit').textContent = state.unit === 'MPH' ? 'MPH' : 'KM/H';
+      document.getElementById('speed-arc').style.strokeDashoffset = 264 - Math.min(1, rpmNorm) * 264;
+
+      const gear = state.currentGear === 0 ? 'N' : String(state.currentGear);
+      document.getElementById('hud-gear').textContent = gear;
+      document.getElementById('hud-lane').textContent = `LANE ${player1.laneIndex + 1}`;
+
+      if (state.targetKm >= 9000) {
+        document.getElementById('hud-distance-text').textContent = `${tripKm.toFixed(2)} KM (ENDLESS)`;
+        document.getElementById('hud-progress-fill').style.width = '100%';
+      } else {
+        document.getElementById('hud-distance-text').textContent = `${tripKm.toFixed(2)} / ${state.targetKm.toFixed(1)} KM`;
+        document.getElementById('hud-progress-fill').style.width = `${Math.min(100, (tripKm / state.targetKm) * 100)}%`;
+      }
+
+      const odoText = `${profile.totalOdoKm.toFixed(1)} KM`;
+      document.getElementById('hud-total-odo').textContent = odoText;
+      document.getElementById('top-career-odo').textContent = odoText;
+
+      const starsEl = document.getElementById('hud-wanted-stars');
+      const modeEl = document.getElementById('hud-siren-mode');
+      if (state.wantedStars === 0) {
+        starsEl.innerHTML = '<span class="text-slate-600">★★★★★</span>';
+        modeEl.textContent = 'Police Heat';
+        modeEl.className = 'text-[9px] text-slate-400 uppercase font-bold';
+      } else {
+        const active = '★'.repeat(state.wantedStars);
+        const dim = '★'.repeat(5 - state.wantedStars);
+        starsEl.innerHTML = `<span class="text-rose-500 animate-pulse">${active}</span><span class="text-slate-600">${dim}</span>`;
+        modeEl.textContent = state.wantedStars <= 2 ? 'SIREN: WAIL' : state.wantedStars <= 4 ? 'SIREN: YELP' : 'ALARM: HI-LO';
+        modeEl.className = 'text-[9px] text-rose-400 uppercase font-bold animate-pulse';
+      }
+
+      let rank = 1;
+      aiRivals.forEach(r => { if (r.distanceMeters > player1.distanceMeters) rank++; });
+      const suf = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
+      document.getElementById('hud-position').textContent = `${rank}${suf} / ${aiRivals.length + 1}`;
+
+      document.getElementById('hud-nitro-bar').style.width = `${Math.round(player1.nitro)}%`;
+      document.getElementById('hud-nitro-text').textContent = `${Math.round(player1.nitro)}%`;
+      document.getElementById('hud-health-bar').style.width = `${Math.round(player1.health)}%`;
+      document.getElementById('hud-health-text').textContent = `${Math.round(player1.health)}%`;
+
+      const mins = Math.floor(state.raceTime / 60);
+      const secs = state.raceTime % 60;
+      document.getElementById('hud-timer').textContent = `${String(mins).padStart(2, '0')}:${secs < 10 ? '0' : ''}${secs.toFixed(1)}`;
+
+      const bInd = document.getElementById('hud-brake-indicator');
+      bInd.className = isBraking ? 'px-1.5 py-0.5 rounded bg-rose-600 text-white font-bold' : 'px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 font-bold';
+    }
+
+    // Tactical Radar Canvas
+    const radarCanvas = document.getElementById('radar-canvas');
+    const rCtx = radarCanvas ? radarCanvas.getContext('2d') : null;
+
+    function drawRadar() {
+      if (!rCtx) return;
+      const w = radarCanvas.width;
+      const h = radarCanvas.height;
+      rCtx.clearRect(0, 0, w, h);
+
+      rCtx.fillStyle = '#0f172a';
+      rCtx.fillRect(18, 0, w - 36, h);
+      rCtx.strokeStyle = 'rgba(255,255,255,0.12)';
+      rCtx.beginPath();
+      for (let i = 1; i <= 3; i++) {
+        const lx = 18 + ((w - 36) / 4) * i;
+        rCtx.moveTo(lx, 0);
+        rCtx.lineTo(lx, h);
+      }
+      rCtx.stroke();
+
+      const mapX = (worldX) => (w / 2) + (worldX / (ROAD_WIDTH / 2)) * ((w - 40) / 2);
+      const mapY = (relMeters) => (h * 0.72) - (relMeters * 0.45);
+
+      roadsideShops.forEach(s => {
+        const sy = mapY(-s.group.position.z);
+        if (sy >= -10 && sy <= h + 10) {
+          rCtx.fillStyle = '#10b981';
+          rCtx.fillRect(s.side === 1 ? w - 16 : 6, sy - 6, 10, 12);
+        }
+      });
+
+      aiRivals.forEach(r => {
+        const ry = mapY(r.distanceMeters - player1.distanceMeters);
+        if (ry >= 0 && ry <= h) {
+          rCtx.fillStyle = '#38bdf8';
+          rCtx.beginPath();
+          rCtx.arc(mapX(r.x), ry, 4, 0, Math.PI * 2);
+          rCtx.fill();
+        }
+      });
+
+      policeCars.forEach(c => {
+        const cy = mapY(c.distanceMeters - player1.distanceMeters);
+        if (cy >= 0 && cy <= h) {
+          rCtx.fillStyle = Math.floor(performance.now() / 140) % 2 === 0 ? '#ef4444' : '#3b82f6';
+          rCtx.beginPath();
+          rCtx.arc(mapX(c.x), cy, 4.5, 0, Math.PI * 2);
+          rCtx.fill();
+        }
+      });
+
+      const px = mapX(player1.x);
+      const py = h * 0.72;
+      rCtx.fillStyle = '#fbbf24';
+      rCtx.beginPath();
+      rCtx.moveTo(px, py - 6);
+      rCtx.lineTo(px - 5, py + 5);
+      rCtx.lineTo(px + 5, py + 5);
+      rCtx.closePath();
+      rCtx.fill();
+    }
+
+    // =========================================================================
+    // 14. GARAGE & HUD UI EVENT LISTENERS
+    // =========================================================================
+    const AVATAR_ICONS = { carbon: '🪖', cyber: '🤖', gold: '👑', street: '🕶️', classic: '🏎️' };
+
+    document.getElementById('driver-name-input').value = profile.driverName;
+    document.getElementById('avatar-select').value = profile.avatar;
+    document.getElementById('rim-select').value = profile.rimStyle;
+    document.getElementById('finish-select').value = profile.paintFinish;
+    document.getElementById('avatar-preview-badge').textContent = AVATAR_ICONS[profile.avatar] || '🪖';
+    saveProfile();
+
+    // Sync Steering Sensitivity Sliders (Top HUD & Pause Menu)
+    function updateSteerSensitivity(val) {
+      const clamped = Math.max(0.5, Math.min(2.0, Number(val)));
+      state.steerSensitivity = clamped;
+      profile.steerSensitivity = clamped;
+      saveProfile();
+      document.getElementById('top-steer-slider').value = String(clamped);
+      document.getElementById('pause-steer-slider').value = String(clamped);
+      document.getElementById('top-steer-val').textContent = `${clamped.toFixed(1)}x`;
+      document.getElementById('pause-steer-val').textContent = `${clamped.toFixed(1)}x`;
+    }
+    updateSteerSensitivity(profile.steerSensitivity || 1.1);
+
+    document.getElementById('top-steer-slider').addEventListener('input', (e) => updateSteerSensitivity(e.target.value));
+    document.getElementById('pause-steer-slider').addEventListener('input', (e) => updateSteerSensitivity(e.target.value));
+
+    document.getElementById('driver-name-input').addEventListener('input', (e) => {
+      profile.driverName = e.target.value.trim() || 'ApexRacer';
+      saveProfile();
+    });
+
+    document.getElementById('avatar-select').addEventListener('change', (e) => {
+      profile.avatar = e.target.value;
+      document.getElementById('avatar-preview-badge').textContent = AVATAR_ICONS[profile.avatar] || '🪖';
+      saveProfile();
+      rebuildPlayerCar();
+    });
+
+    document.querySelectorAll('#suit-swatches button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        profile.suitColor = btn.dataset.suit;
+        document.querySelectorAll('#suit-swatches button').forEach(b => b.classList.remove('ring-2', 'ring-white'));
+        btn.classList.add('ring-2', 'ring-white');
+        saveProfile();
+        rebuildPlayerCar();
+      });
+    });
+
+    // 7-Car Roster Selector
+    document.querySelectorAll('.car-card').forEach(btn => {
+      btn.addEventListener('click', () => {
+        profile.car = btn.dataset.car;
+        document.querySelectorAll('.car-card').forEach(c => {
+          c.classList.remove('border-2', 'border-orange-500', 'bg-slate-900/95');
+          c.classList.add('border', 'border-white/10', 'bg-slate-900/75');
+        });
+        btn.classList.remove('border', 'border-white/10', 'bg-slate-900/75');
+        btn.classList.add('border-2', 'border-orange-500', 'bg-slate-900/95');
+        saveProfile();
+        rebuildPlayerCar();
+      });
+    });
+
+    // Rims, Paint Finish, Color Swatches & Underglow Neon
+    document.getElementById('rim-select').addEventListener('change', (e) => {
+      profile.rimStyle = e.target.value;
+      saveProfile();
+      rebuildPlayerCar();
+    });
+
+    document.getElementById('finish-select').addEventListener('change', (e) => {
+      profile.paintFinish = e.target.value;
+      saveProfile();
+      rebuildPlayerCar();
+    });
+
+    document.querySelectorAll('#paint-swatches button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        profile.paintColor = btn.dataset.color;
+        document.querySelectorAll('#paint-swatches button').forEach(b => b.classList.remove('ring-2', 'ring-white'));
+        btn.classList.add('ring-2', 'ring-white');
+        saveProfile();
+        rebuildPlayerCar();
+      });
+    });
+
+    document.querySelectorAll('#underglow-swatches button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        profile.underglow = btn.dataset.glow;
+        document.querySelectorAll('#underglow-swatches button').forEach(b => b.classList.remove('ring-2', 'ring-white'));
+        btn.classList.add('ring-2', 'ring-white');
+        saveProfile();
+        rebuildPlayerCar();
+      });
+    });
+
+    document.getElementById('distance-select').addEventListener('change', (e) => {
+      state.targetKm = Number(e.target.value);
+    });
+
+    document.getElementById('world-select').addEventListener('change', (e) => {
+      state.worldKey = e.target.value;
+      applyWorldTheme(state.worldKey);
+    });
+
+    document.getElementById('btn-unit-toggle').addEventListener('click', () => {
+      state.unit = state.unit === 'KMH' ? 'MPH' : 'KMH';
+      document.getElementById('btn-unit-toggle').textContent = state.unit === 'KMH' ? 'KM/H' : 'MPH';
+    });
+
+    document.getElementById('btn-headlights').addEventListener('click', () => setHeadlights(!state.headlightsOn));
+
+    document.getElementById('btn-audio').addEventListener('click', () => {
+      audio.init();
+      const muted = audio.toggleMute();
+      document.getElementById('audio-icon').textContent = muted ? '🔇' : '🔊';
+      document.getElementById('audio-label').textContent = muted ? 'Muted' : 'Audio';
+    });
+
+    document.getElementById('btn-pause-race').addEventListener('click', togglePause);
+    document.getElementById('btn-resume-race').addEventListener('click', togglePause);
+
+    function returnToGarage() {
+      state.raceActive = false;
+      state.paused = false;
+      audio.stopAll(0.2);
+      saveProfile();
+      document.getElementById('main-menu').classList.remove('hidden');
+      document.getElementById('race-hud').classList.add('hidden');
+      document.getElementById('pause-modal').classList.add('hidden');
+      document.getElementById('pause-modal').classList.remove('flex');
+      document.getElementById('finish-modal').classList.add('hidden');
+      document.getElementById('finish-modal').classList.remove('flex');
+      document.getElementById('btn-pause-race').classList.add('hidden');
+      document.getElementById('siren-overlay').classList.add('hidden');
+      document.getElementById('nitro-overlay').style.opacity = '0';
+    }
+
+    document.getElementById('btn-open-menu').addEventListener('click', returnToGarage);
+    document.getElementById('btn-pause-garage').addEventListener('click', returnToGarage);
+    document.getElementById('btn-start-race').addEventListener('click', startRace);
+    document.getElementById('btn-restart-race').addEventListener('click', startRace);
+    document.getElementById('btn-next-level').addEventListener('click', returnToGarage);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // =========================================================================
+    // 15. MAIN ANIMATION LOOP
+    // =========================================================================
+    let lastTime = 0;
+    function animate(ts = 0) {
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.05, (ts - lastTime) / 1000 || 0.016);
+      lastTime = ts;
+
+      if (state.raceActive && !state.paused) {
+        updateSimulation(dt);
+      } else if (!state.raceActive) {
+        // Live 3D Showroom Turntable Camera
+        if (!isDraggingShowroom) showroomAngle += dt * 0.42;
+        camera.position.set(
+          player1.x + Math.sin(showroomAngle) * 4.5,
+          2.15,
+          Math.cos(showroomAngle) * 5.2
+        );
+        camera.lookAt(player1.x, 0.72, -0.3);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.onload = function () {
+      applyWorldTheme('night_neon');
+      rebuildPlayerCar();
+      animate();
+    };
+  </script>
+</body>
+</html>
