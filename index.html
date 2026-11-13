@@ -498,12 +498,24 @@ model.position.set(-carCenter.x, -carBox2.min.y, -carCenter.z);
     const safehouseCrew = new THREE.Group();
     scene.add(safehouseCrew);
 
-    function rebuildShowroom() {
-      scene.remove(playerCar);
+    function disposeObject(o) {
+  o.traverse(c => {
+    if (c.isMesh) {
+      if (c.geometry) c.geometry.dispose();
+      const mats = Array.isArray(c.material) ? c.material : [c.material];
+      mats.forEach(m => {
+        if (!m) return;
+        Object.values(m).forEach(v => { if (v && v.isTexture) v.dispose(); });
+        m.dispose();
+      });
+    }
+  });
+}function rebuildShowroom() {
+      scene.remove(playerCar); disposeObject(playerCar);
       playerCar = createProceduralCarMesh(gameState.selectedCar);
       scene.add(playerCar);
 
-      safehouseCrew.clear();
+      disposeObject(safehouseCrew); safehouseCrew.clear();
       safehouseCrew.add(
         createProceduralHuman(gameState.selectedCrew, -2.2, 0.4),
         createProceduralHuman('david', -2.8, -0.8),
