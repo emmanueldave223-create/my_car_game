@@ -405,7 +405,7 @@
         model.rotation.y = info.rotY;
         model.traverse(c => { if(c.isMesh) { c.castShadow = true; c.receiveShadow = true; }});
         group.add(model);
-      }, undefined, () => {});
+      }, undefined, (err) => { console.error('GLB FAILED', url, err); });
 
       return group;
     }
