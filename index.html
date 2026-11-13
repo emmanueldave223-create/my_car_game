@@ -417,7 +417,7 @@
       holder.position.set(x, 0, z);
 
       const mat = new THREE.MeshStandardMaterial({ color: info.color, roughness: 0.4 });
-      const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 1.25, 6, 12), mat);
+      const capsule = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.2, 12), mat);
       capsule.position.y = 0.9;
       capsule.castShadow = true;
       holder.add(capsule);
