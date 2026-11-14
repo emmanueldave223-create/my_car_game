@@ -299,9 +299,7 @@
   </div>
 
   <script>
-    const REPO_RAW = 'https://raw.githubusercontent.com/emmanueldave223-create/my_car_game/main/';
-
-    const CAR_FILES = {
+const REPO_RAW = './';    const CAR_FILES = {
       amggt63: { file: 'mercedes-v8.glb', title: 'MERCEDES-AMG GT 63', maxKmh: 365, accel: 31, rotY: Math.PI, color: 0x3b82f6 },
       terzo:   { file: '2021_lamborghini_countach_lpi_800-4-v7.glb', title: 'LAMBORGHINI COUNTACH V12', maxKmh: 405, accel: 34, rotY: 0, color: 0xf59e0b },
       chiron:  { file: 'bugatti_bolide_2024-v6.glb', title: 'BUGATTI BOLIDE 2024', maxKmh: 420, accel: 35, rotY: Math.PI, color: 0xef4444 },
@@ -668,5 +666,6 @@ model.position.set(-carCenter.x, -carBox2.min.y, -carCenter.z);
       loop();
     };
   </script>
-</body>
+<script src="patch.js"></script>
+</body> 
 </html>
