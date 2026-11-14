@@ -137,8 +137,8 @@
       o.connect(gn); gn.connect(ac.destination); o.start();
       return [o, gn];
     };
-    const a = mk('sawtooth'); eng = a[0]; engG = a[1];
-    const b = mk('square'); sir = b[0]; sirG = b[1];
+    const a = mk('triangle'); eng = a[0]; engG = a[1];
+    const b = mk('triangle'); sir = b[0]; sirG = b[1];
   }
   function honk() {
     if (!ac) return;
@@ -189,14 +189,14 @@
 
       camera.fov = 60 + Math.min(1.25, r) * 10;
       camera.updateProjectionMatrix();
-      camera.position.set(g.x * 0.6, 3.2, 7.5);
+      camera.position.set(g.x * 0.6, 3.7, 10);
       camera.lookAt(g.x * 0.4, 1.0, -10);
 
       if (ac) {
         eng.frequency.value = 45 + r * 140;
-        engG.gain.value = 0.03 + r * 0.03;
+        engG.gain.value = 0.015 + r * 0.02;
         sir.frequency.value = 850 + 150 * Math.sin(t * 7);
-        sirG.gain.value = g.wantedStars > 0 ? 0.03 : 0;
+        sirG.gain.value = g.wantedStars > 0 ? 0.01 : 0;
       }
     } else {
       if (!dragging) orbitAngle += dt * 0.35;
