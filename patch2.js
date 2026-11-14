@@ -24,24 +24,49 @@
   $('ctrl-headlights').addEventListener('click', toggleBeams);
   window.addEventListener('keydown', (e) => { if (e.code === 'KeyL') toggleBeams(); });
 
-  /* ---- police trucks with flashing lights ---- */
+  /* ---- cheap round shadow under every car ---- */
+  const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false });
+  const blobGeo = new THREE.PlaneGeometry(2.6, 5.4);
+  function blob(o) {
+    if (o.userData.blob && o.userData.blob.parent === o) return;
+    const m = new THREE.Mesh(blobGeo, blobMat);
+    m.rotation.x = -Math.PI / 2; m.position.y = 0.04;
+    o.add(m); o.userData.blob = m;
+  }
+
+  /* ---- police trucks: the truck's own lights flash + red/blue glow on the road ---- */
   function copObj() {
     const w = new THREE.Group();
     w.add(createProceduralCarMesh('police'));
-    const mk = (c, x) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.35), new THREE.MeshBasicMaterial({ color: c }));
-      m.position.set(x, 2.1, 0);
-      w.add(m);
-      return m;
-    };
-    w.userData.red = mk(0xff2222, -0.45);
-    w.userData.blue = mk(0x2266ff, 0.45);
+    w.rotation.y = Math.PI; // face forward like the player's car
+    blob(w);
     return w;
+  }
+  const pr = new THREE.PointLight(0xff2020, 0, 28), pb = new THREE.PointLight(0x2060ff, 0, 28);
+  scene.add(pr); scene.add(pb);
+  function flashCops() {
+    const ph = Math.floor(t * 8) % 2 === 0;
+    let nearest = null;
+    cops.forEach((c) => {
+      if (!nearest || Math.abs(c.gap) < Math.abs(nearest.gap)) nearest = c;
+      const ud = c.obj.userData;
+      if (!ud.parts || (ud.parts.length === 0 && (ud.tries || 0) < 8 && t > (ud.next || 0))) {
+        ud.parts = []; ud.tries = (ud.tries || 0) + 1; ud.next = t + 1.5;
+        c.obj.traverse((m) => {
+          if (m.isMesh && m.material && /siren|strobe|emerg|beacon|lightbar|light_bar/.test((m.name + ' ' + (m.material.name || '')).toLowerCase())) ud.parts.push(m);
+        });
+      }
+      ud.parts.forEach((m) => { if (m.material.emissive) { m.material.emissive.setHex(ph ? 0xff0000 : 0x0033ff); m.material.emissiveIntensity = 2.5; } });
+    });
+    if (nearest) {
+      pr.position.set(nearest.x, 2.6, nearest.gap); pb.position.set(nearest.x, 2.6, nearest.gap);
+      pr.intensity = ph ? 3 : 0; pb.intensity = ph ? 0 : 3;
+    } else { pr.intensity = 0; pb.intensity = 0; }
   }
   function spawn(n) {
     for (let i = 0; i < n; i++) {
       const obj = copObj();
-      const c = { obj, gap: 45 + i * 20 + Math.random() * 10, v: 50, x: LANES[Math.floor(Math.random() * LANES.length)] };
+      const c = { obj, k: cops.length, gap: 45 + i * 20 + Math.random() * 10, v: 50, x: LANES[Math.floor(Math.random() * LANES.length)] };
       obj.position.set(c.x, 0, c.gap);
       scene.add(obj);
       cops.push(c);
@@ -52,6 +77,7 @@
     cops.length = 0;
     robbedAt = null; bust = 15; lastStarAt = 0;
     $('bust-timer-box').classList.add('hidden');
+    pr.intensity = 0; pb.intensity = 0;
   }
 
   function bump(f, cd) {
@@ -106,6 +132,8 @@
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now; t += dt;
     const g = gameState;
+    if (playerCar) blob(playerCar);
+    if (duelRival) blob(duelRival);
     const on = beams && g.active && !g.ended;
     lamps.forEach((l) => {
       l.s.position.set(g.x + l.x, 0.8, -1.8);
@@ -135,19 +163,30 @@
     if (g.distanceM - lastStarAt > 400 && g.wantedStars < 5) { lastStarAt = g.distanceM; g.wantedStars++; spawn(1); }
 
     let near = false;
-    const tg = Math.max(3.5, 8.5 - g.wantedStars * 0.9);  // how close cops try to stay
     const top = 78 + g.wantedStars * 8;                    // cop top speed (m/s)
-    cops.forEach((c) => {
-      const want = Math.min(top, Math.max(0, g.speedMs + (c.gap - tg) * 0.9));
+    cops.forEach((c, i) => {
+      const hover = 2.5 * Math.sin(t * 0.6 + c.k * 2.1);   // cops pull up beside you
+      const want = Math.min(top, Math.max(0, g.speedMs + (c.gap - hover) * 0.9));
       c.v += (want - c.v) * Math.min(1, dt * 2.5);
-      c.gap = Math.min(250, Math.max(0, c.gap + (g.speedMs - c.v) * dt));
-      if (c.gap < 40) c.x += (g.x - c.x) * 0.05;
-      if (c.gap < 4.6 && Math.abs(c.x - g.x) < 2.1) { c.gap = 4.6; bump(0.85, 1.2); }
+      c.gap = Math.min(250, Math.max(-12, c.gap + (g.speedMs - c.v) * dt));
+      const ram = Math.sin(t * 0.35 + c.k * 1.7) > 0.55;   // now and then they swerve into you
+      let li = g.laneIndex + (c.k % 2 ? 1 : -1);
+      if (li < 0 || li >= LANES.length) li = g.laneIndex + (c.k % 2 ? -1 : 1);
+      const tx = c.gap < 40 ? (ram ? g.x : LANES[Math.max(0, Math.min(LANES.length - 1, li))]) : g.x;
+      c.x += (tx - c.x) * Math.min(1, dt * (ram ? 2.2 : 1.2));
+      if (Math.abs(c.gap) < 4.8 && Math.abs(c.x - g.x) < 2.1) { c.x += (c.x >= g.x ? 1 : -1) * 0.35; bump(0.88, 1.2); }
+      for (let j = i + 1; j < cops.length; j++) {          // cops can't drive through each other
+        const o = cops[j];
+        if (Math.abs(c.gap - o.gap) < 5.5 && Math.abs(c.x - o.x) < 2.3) {
+          const sg = c.x >= o.x ? 1 : -1;
+          c.x += sg * 0.2; o.x -= sg * 0.2; c.gap += 0.3; o.gap -= 0.3;
+        }
+      }
+      c.x = Math.max(lo, Math.min(hi, c.x));
       c.obj.position.set(c.x, 0, c.gap);
-      c.obj.userData.red.visible = Math.floor(t * 8) % 2 === 0;
-      c.obj.userData.blue.visible = !c.obj.userData.red.visible;
-      if (c.gap < 6.5 && Math.abs(c.x - g.x) < 2.8) near = true;
+      if (c.gap < 7 && Math.abs(c.x - g.x) < 3.0) near = true;
     });
+    flashCops();
 
     bust = near ? bust - dt : Math.min(15, bust + dt * 1.5);
     const box = $('bust-timer-box');

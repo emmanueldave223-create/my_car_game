@@ -187,10 +187,10 @@
         $('hud-stars').innerHTML = '<span class="text-amber-400">' + '★'.repeat(lastStars) + '</span>' + '★'.repeat(5 - lastStars);
       }
 
-      camera.fov = 60 + Math.min(1.25, r) * 10;
+      camera.fov = 52 + Math.min(1.25, r) * 10;
       camera.updateProjectionMatrix();
-      camera.position.set(g.x * 0.6, 3.7, 10);
-      camera.lookAt(g.x * 0.4, 1.0, -10);
+      camera.position.set(g.x * 0.6, 3.6, 9);
+      camera.lookAt(g.x * 0.4, 0.9, -5);
 
       if (ac) {
         eng.frequency.value = 45 + r * 140;
