@@ -3,6 +3,8 @@
   const $ = (id) => document.getElementById(id);
   CAR_FILES.mclaren = { file: 'models/mclaren_w1.glb', title: 'MCLAREN W1', maxKmh: 350, accel: 33, rotY: 0, color: 0xf97316 };
 
+  CREW_FILES.david.sit = 'models/david_sit.fbx'; // used if the file exists, otherwise the normal idle animation
+
   const mc = { model: null, loading: false, wheels: [], head: null, mixer: null, action: null, open: false, beams: false, waiting: [] };
   const prevCar = window.createProceduralCarMesh;
   const UP = new THREE.Vector3(0, 0, 1); // "up" inside the McLaren file
@@ -19,7 +21,8 @@
     if (mc.loading || mc.model) return;
     mc.loading = true;
     showToast('Loading MCLAREN W1...');
-    gltfLoader.load(REPO_RAW + CAR_FILES.mclaren.file, (gltf) => {
+    const urls = [CAR_FILES.mclaren.file, 'mclaren_w1.glb']; // look in models/ first, then the main folder
+    const attempt = (i) => gltfLoader.load(REPO_RAW + urls[i], (gltf) => {
       const model = gltf.scene;
       model.updateMatrixWorld(true);
       const head = model.getObjectByName('headlights'), tail = model.getObjectByName('tailights');
@@ -54,7 +57,11 @@
       const w = mc.waiting[mc.waiting.length - 1];
       if (w) { w.clear(); w.add(model); }
       mc.waiting.length = 0;
-    }, undefined, (e) => { console.error('MCLAREN FAILED', e); mc.loading = false; });
+    }, undefined, (e) => {
+      if (i + 1 < urls.length) attempt(i + 1);
+      else { console.error('MCLAREN FAILED - file not found in models/ or the main folder', e); mc.loading = false; }
+    });
+    attempt(0);
   }
 
   window.createProceduralCarMesh = function (key) {

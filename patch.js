@@ -60,7 +60,7 @@
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.2, 12), new THREE.MeshStandardMaterial({ color: info.color }));
     stand.position.y = 0.9;
     holder.add(stand);
-    fbxLoader.load(REPO_RAW + info.idle, (fbx) => {
+    const ok = (fbx) => {
       holder.clear();
       const h = new THREE.Box3().setFromObject(fbx).getSize(new THREE.Vector3()).y;
       fbx.scale.setScalar(1.8 / (h || 180));
@@ -71,7 +71,9 @@
       }
       fbx.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       holder.add(fbx);
-    }, undefined, (e) => console.error('FBX FAILED', key, e));
+    };
+    const go = (url, fb) => fbxLoader.load(REPO_RAW + url, ok, undefined, (e) => { if (fb) go(fb); else console.error('FBX FAILED', key, e); });
+    go(info.sit || info.idle, info.sit ? info.idle : null);
     crewCache[key] = holder;
     return holder;
   }
