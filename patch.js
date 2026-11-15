@@ -141,7 +141,7 @@
     const b = mk('triangle'); sir = b[0]; sirG = b[1];
   }
   function honk() {
-    if (!ac) return;
+    if (!ac || window.__muted) return;
     [420, 520].forEach((f) => {
       const o = ac.createOscillator();
       const gn = ac.createGain();
@@ -194,9 +194,9 @@
 
       if (ac) {
         eng.frequency.value = 45 + r * 140;
-        engG.gain.value = 0.015 + r * 0.02;
+        engG.gain.value = window.__muted ? 0 : 0.015 + r * 0.02;
         sir.frequency.value = 850 + 150 * Math.sin(t * 7);
-        sirG.gain.value = g.wantedStars > 0 ? 0.01 : 0;
+        sirG.gain.value = (g.wantedStars > 0 && !window.__muted) ? 0.01 : 0;
       }
     } else {
       if (!dragging) orbitAngle += dt * 0.35;

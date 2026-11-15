@@ -39,7 +39,6 @@
     const w = new THREE.Group();
     w.add(createProceduralCarMesh('police'));
     w.rotation.y = Math.PI; // face forward like the player's car
-    blob(w);
     return w;
   }
   const pr = new THREE.PointLight(0xff2020, 0, 28), pb = new THREE.PointLight(0x2060ff, 0, 28);
@@ -109,7 +108,7 @@
     if (!duelRival) return;
     if (!duel || duel.obj !== duelRival) {
       const key = g.selectedCar === 'terzo' ? 'chiron' : 'terzo';
-      duel = { obj: duelRival, dist: 0, v: 0, x: LANES[1], top: CAR_FILES[key].maxKmh / 3.6 * 0.93, acc: CAR_FILES[key].accel * 0.9 };
+      duel = { obj: duelRival, dist: 0, v: 0, x: LANES[1], top: CAR_FILES[g.selectedCar].maxKmh / 3.6 * 0.9, acc: CAR_FILES[g.selectedCar].accel * 0.85 };
     }
     duel.v = Math.min(duel.top, duel.v + duel.acc * dt);
     duel.dist += duel.v * dt;
@@ -132,8 +131,6 @@
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now; t += dt;
     const g = gameState;
-    if (playerCar) blob(playerCar);
-    if (duelRival) blob(duelRival);
     const on = beams && g.active && !g.ended;
     lamps.forEach((l) => {
       l.s.position.set(g.x + l.x, 0.8, -1.8);
@@ -168,13 +165,13 @@
       const hover = 2.5 * Math.sin(t * 0.6 + c.k * 2.1);   // cops pull up beside you
       const want = Math.min(top, Math.max(0, g.speedMs + (c.gap - hover) * 0.9));
       c.v += (want - c.v) * Math.min(1, dt * 2.5);
-      c.gap = Math.min(250, Math.max(-12, c.gap + (g.speedMs - c.v) * dt));
+      c.gap = Math.min(250, Math.max(0, c.gap + (g.speedMs - c.v) * dt));
       const ram = Math.sin(t * 0.35 + c.k * 1.7) > 0.55;   // now and then they swerve into you
       let li = g.laneIndex + (c.k % 2 ? 1 : -1);
       if (li < 0 || li >= LANES.length) li = g.laneIndex + (c.k % 2 ? -1 : 1);
       const tx = c.gap < 40 ? (ram ? g.x : LANES[Math.max(0, Math.min(LANES.length - 1, li))]) : g.x;
       c.x += (tx - c.x) * Math.min(1, dt * (ram ? 2.2 : 1.2));
-      if (Math.abs(c.gap) < 4.8 && Math.abs(c.x - g.x) < 2.1) { c.x += (c.x >= g.x ? 1 : -1) * 0.35; bump(0.88, 1.2); }
+      if (c.gap < 4.8 && Math.abs(c.x - g.x) < 2.1) { c.gap = 4.8; c.x += (c.x >= g.x ? 1 : -1) * 0.35; bump(0.88, 1.2); }
       for (let j = i + 1; j < cops.length; j++) {          // cops can't drive through each other
         const o = cops[j];
         if (Math.abs(c.gap - o.gap) < 5.5 && Math.abs(c.x - o.x) < 2.3) {
