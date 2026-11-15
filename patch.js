@@ -3,6 +3,7 @@
   const clock = new THREE.Clock();
   const mixers = [];
   const dispose = window.disposeObject || function () {};
+  if (CAR_FILES.chiron) CAR_FILES.chiron.tiltZ = 0.2; // the Bugatti file is rolled about 11.5 degrees
 
   /* ---------- CARS: download once, reuse, correct size ---------- */
   const carCache = new Map();
@@ -28,6 +29,7 @@
     gltfLoader.load(REPO_RAW + encodeURIComponent(info.file), (gltf) => {
       const model = gltf.scene;
       model.rotation.y = info.rotY;
+      model.rotation.z = info.tiltZ || 0;
       let b = new THREE.Box3().setFromObject(model);
       const s = b.getSize(new THREE.Vector3());
       model.scale.setScalar(4.6 / Math.max(s.x, s.z));
