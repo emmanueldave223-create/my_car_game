@@ -129,7 +129,9 @@
 #ctrl-nitro{width:100%;height:36px;background:rgba(37,99,235,.28)!important;border:1px solid var(--cyan)!important;font-family:'Orbitron',sans-serif!important;font-size:.74rem;color:var(--cyan)!important;border-radius:0!important}
 #ctrl-brake{width:58px;height:58px;background:rgba(239,68,68,.2)!important;border:1px solid var(--danger)!important;font-family:'Orbitron',sans-serif!important;font-size:.74rem;color:#fca5a5!important;border-radius:0!important}
 #ctrl-gas{width:68px;height:58px;background:rgba(14,165,233,.25)!important;border:1px solid var(--cyan)!important;font-family:'Orbitron',sans-serif!important;font-size:.8rem;color:#fff!important;border-radius:0!important}
-#ctrl-gas,#ctrl-brake,#ctrl-nitro,#ctrl-left,#ctrl-right{touch-action:none}
+#ctrl-horn{width:62px;height:58px;background:var(--bg-glass)!important;border:var(--border-bright)!important;font-family:'Orbitron',sans-serif!important;font-size:.7rem;color:#fff!important;border-radius:0!important}
+#ctrl-horn:active{background:rgba(56,189,248,.35)!important}
+#ctrl-gas,#ctrl-brake,#ctrl-nitro,#ctrl-left,#ctrl-right,#ctrl-horn{touch-action:none}
 .speedo-panel{width:195px;padding:10px 14px;display:flex;flex-direction:column;gap:7px}
 .speedo-main{display:flex;justify-content:space-between;align-items:baseline}
 .speed-readout{display:flex;align-items:baseline;gap:4px}
@@ -285,7 +287,7 @@
     </div>
   </div>
   <div class="hud-bottom-row">
-    <div class="hud-controls-left interactive">${K('ctrl-headlights')}<div class="steer-group">${K('ctrl-left')}${K('ctrl-right')}</div></div>
+    <div class="hud-controls-left interactive">${K('ctrl-headlights')}<div class="steer-group">${K('ctrl-left')}${K('ctrl-right')}<button id="ctrl-horn">HORN</button></div></div>
     <div id="interact-prompt" class="interactive hidden">${K('btn-interact')}</div>
     <div class="hud-right-cluster interactive">
       <div class="pedal-stack">${K('ctrl-nitro')}<div class="pedal-row">${K('ctrl-brake')}${K('ctrl-gas')}</div></div>
@@ -381,6 +383,8 @@
   }));
   document.querySelectorAll('[data-soon]').forEach((b) => b.addEventListener('click', () => showToast(b.dataset.soon + ': COMING SOON')));
 
+  $('ctrl-horn').addEventListener('pointerdown', () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' })));
+
   /* top tabs: GARAGE = clear showroom, other tabs open the right panel, SETTINGS opens the real settings */
   const right = $('right-column'), pc = $('panel-customize'), pm = $('panel-module');
   function openModule(name) {
@@ -443,25 +447,28 @@
     if (c.state !== 'idle') return;
     c.state = 'loading';
     const info = CREW_FILES[key] || CREW_FILES.david;
-    const tries = [info.sit, info.idle].filter(Boolean);
     showToast('Loading ' + key.toUpperCase() + '...');
-    const next = (i) => {
-      if (i >= tries.length) { c.state = 'failed'; showToast('Could not load ' + key.toUpperCase() + ' - check the file name in models/'); return; }
-      fbxLoader.load(REPO_RAW + tries[i], (fbx) => {
-        const h = new THREE.Box3().setFromObject(fbx).getSize(new THREE.Vector3()).y;
-        fbx.scale.setScalar(1.8 / (h || 180));
-        if (fbx.animations && fbx.animations.length) {
-          c.mixer = new THREE.AnimationMixer(fbx);
-          c.mixer.clipAction(fbx.animations[0]).play();
-        }
-        fbx.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-        c.holder.remove(c.stand);
-        c.holder.add(fbx);
-        c.state = 'ready';
-        showToast(key.toUpperCase() + ' ready');
-      }, undefined, (e) => { console.error('FBX FAILED', REPO_RAW + tries[i], e); next(i + 1); });
+    const fail = (why) => { c.state = 'failed'; console.error('CREW FAILED', key, why); showToast('Could not load ' + key.toUpperCase() + ' - press F12 to see why'); };
+    const hasMesh = (o) => { let m = false; o.traverse((x) => { if (x.isMesh) m = true; }); return m; };
+    const show = (fbx, clip) => {
+      const h = new THREE.Box3().setFromObject(fbx).getSize(new THREE.Vector3()).y;
+      fbx.scale.setScalar(1.8 / (h || 180));
+      const a = clip || (fbx.animations && fbx.animations[0]);
+      if (a) { c.mixer = new THREE.AnimationMixer(fbx); c.mixer.clipAction(a).play(); }
+      fbx.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      c.holder.remove(c.stand);
+      c.holder.add(fbx);
+      c.state = 'ready';
+      showToast(key.toUpperCase() + ' ready');
     };
-    next(0);
+    // the body (full model with the skin)
+    const loadBody = (clip) => fbxLoader.load(REPO_RAW + info.idle, (fbx) => show(fbx, clip), undefined, (e) => fail(info.idle));
+    if (info.sit) {
+      fbxLoader.load(REPO_RAW + info.sit, (fbx) => {
+        if (hasMesh(fbx)) show(fbx);
+        else { console.log('sit file has no body (animation only) - playing it on the full model'); loadBody(fbx.animations && fbx.animations[0]); }
+      }, undefined, () => loadBody(null));
+    } else loadBody(null);
   }
   window.rebuildShowroom = function () {
     scene.remove(playerCar);
