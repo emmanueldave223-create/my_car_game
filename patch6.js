@@ -43,6 +43,9 @@
 #crew-selector{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .crew-btn{padding:7px 4px;background:rgba(15,23,42,.85)!important;border:1px solid rgba(148,163,184,.3)!important;font-size:.75rem;font-family:'Orbitron',sans-serif!important;color:var(--text-muted)!important;text-transform:uppercase}
 .crew-btn.active,.crew-btn:hover{border-color:var(--cyan)!important;color:var(--cyan)!important;background:rgba(56,189,248,.16)!important}
+.pose-btn{padding:6px 4px;background:rgba(15,23,42,.85)!important;border:1px solid rgba(148,163,184,.3)!important;font-size:.7rem;font-family:'Orbitron',sans-serif!important;color:var(--text-muted)!important}
+.pose-btn.active,.pose-btn:hover{border-color:var(--cyan)!important;color:var(--cyan)!important;background:rgba(56,189,248,.16)!important}
+#pose-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
 .mode-panel{display:flex;flex-direction:column;gap:7px}
 .mode-btn{width:100%;padding:9px 12px;text-align:left;background:rgba(15,23,42,.88)!important;border:1px solid rgba(56,189,248,.3)!important;display:flex;justify-content:space-between;align-items:center;font-family:'Orbitron',sans-serif!important;font-size:.74rem}
 .mode-btn span.tag{font-family:'Rajdhani',sans-serif;font-size:.72rem;padding:1px 6px;background:rgba(56,189,248,.2);color:var(--cyan)}
@@ -203,6 +206,11 @@
           <button class="crew-btn active" data-crew="david">DAVID</button>
           <button class="crew-btn" data-crew="remy">REMY</button>
           <button class="crew-btn" data-crew="michelle">MICHELLE</button>
+        </div>
+        <div id="pose-row">
+          <button class="pose-btn active" data-pose="sit">SIT</button>
+          <button class="pose-btn" data-pose="stand">STAND</button>
+          <button class="pose-btn" data-pose="run">RUN</button>
         </div>
       </div>
       <div class="glass-panel corner-brackets mode-panel">
@@ -385,6 +393,21 @@
 
   $('ctrl-horn').addEventListener('pointerdown', () => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH' })));
 
+
+  /* horn only works while driving (not in the garage) */
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyH' && !$('garage-ui').classList.contains('hidden')) e.stopImmediatePropagation();
+  }, true);
+  /* headlights: track state, switch them off when going back to the garage */
+  const lightsBtn = kept['ctrl-headlights'];
+  window.addEventListener('keydown', (e) => { if (e.code === 'KeyL' && lightsBtn) lightsBtn.classList.toggle('on'); });
+  if (kept['btn-back-garage']) kept['btn-back-garage'].addEventListener('click', () => {
+    if (lightsBtn && lightsBtn.classList.contains('on')) lightsBtn.click();
+  });
+  if (kept['btn-res-garage']) kept['btn-res-garage'].addEventListener('click', () => {
+    if (lightsBtn && lightsBtn.classList.contains('on')) lightsBtn.click();
+  });
+
   /* top tabs: GARAGE = clear showroom, other tabs open the right panel, SETTINGS opens the real settings */
   const right = $('right-column'), pc = $('panel-customize'), pm = $('panel-module');
   function openModule(name) {
@@ -428,6 +451,8 @@
   /* ======================= CREW CHARACTERS ======================= */
   const crewCache = {};
   const spots = [[-2.2, 0.4], [-2.8, -0.8], [-2.7, 1.2]];
+  const SIT = { fwd: 0.6, up: 0.45, side: 0 };   // where David sits on the bonnet (nudge keys change these)
+  let pose = 'sit';                               // sit | stand | run
   function getCrew(key) {
     if (crewCache[key]) return crewCache[key];
     const info = CREW_FILES[key] || CREW_FILES.david;
@@ -440,7 +465,51 @@
     const stand = new THREE.Group();
     stand.add(body); stand.add(head);
     holder.add(stand);
-    return (crewCache[key] = { holder, stand, state: 'idle', mixer: null });
+    return (crewCache[key] = { key, holder, stand, state: 'idle', mixer: null, clips: {}, cur: null, curAct: null, home: new THREE.Vector3() });
+  }
+  function loadModel(url, ok, bad) {
+    if (/\.(glb|gltf)$/i.test(url)) {
+      if (!THREE.GLTFLoader) { bad(); return; }
+      new THREE.GLTFLoader().load(REPO_RAW + url, (gl) => { const o = gl.scene; o.animations = gl.animations || []; ok(o); }, undefined, bad);
+    } else fbxLoader.load(REPO_RAW + url, ok, undefined, bad);
+  }
+  function loadFirst(list, ok, bad, i) {
+    i = i || 0;
+    if (i >= list.length) { bad(); return; }
+    loadModel(list[i], ok, () => loadFirst(list, ok, bad, i + 1));
+  }
+  function wantPose(c) {
+    if (pose === 'sit' && !(c.clips.sit && g.selectedCar === 'mclaren')) return 'stand';
+    return pose;
+  }
+  function play(c, name) {
+    if (!c.mixer) return;
+    if (name === 'run' && !c.clips.run) { loadRun(c); name = 'stand'; }
+    const clip = c.clips[name] || c.clips.stand;
+    if (!clip) return;
+    if (c.cur === name) return;
+    const act = c.mixer.clipAction(clip);
+    act.reset().fadeIn(0.25).play();
+    if (c.curAct && c.curAct !== act) c.curAct.fadeOut(0.25);
+    c.curAct = act; c.cur = name;
+    if (name !== 'sit') { c.holder.position.copy(c.home); c.holder.quaternion.identity(); }
+  }
+  function applyPose() {
+    const c = crewCache[g.selectedCrew];
+    if (c && c.state === 'ready') play(c, wantPose(c));
+  }
+  function loadRun(c) {
+    if (c.runLoading) return;
+    c.runLoading = true;
+    const info = CREW_FILES[c.key] || CREW_FILES.david;
+    showToast('Loading ' + c.key.toUpperCase() + ' run...');
+    loadFirst(['models/' + c.key + '_run.glb', info.run, 'models/' + c.key + '_run.fbx'].filter(Boolean), (o) => {
+      const clip = o.animations && o.animations[0];
+      if (!clip) { showToast('Run file has no animation'); return; }
+      clip.tracks = clip.tracks.filter((t) => !/Hips\.position$/.test(t.name)); // run on the spot
+      c.clips.run = clip;
+      if (pose === 'run' && g.selectedCrew === c.key) { c.cur = null; play(c, 'run'); }
+    }, () => { c.runLoading = false; showToast('Run file not found for ' + c.key.toUpperCase()); });
   }
   function loadCrew(key) {
     const c = getCrew(key);
@@ -448,27 +517,25 @@
     c.state = 'loading';
     const info = CREW_FILES[key] || CREW_FILES.david;
     showToast('Loading ' + key.toUpperCase() + '...');
-    const fail = (why) => { c.state = 'failed'; console.error('CREW FAILED', key, why); showToast('Could not load ' + key.toUpperCase() + ' - press F12 to see why'); };
-    const hasMesh = (o) => { let m = false; o.traverse((x) => { if (x.isMesh) m = true; }); return m; };
-    const show = (fbx, clip) => {
-      const h = new THREE.Box3().setFromObject(fbx).getSize(new THREE.Vector3()).y;
-      fbx.scale.setScalar(1.8 / (h || 180));
-      const a = clip || (fbx.animations && fbx.animations[0]);
-      if (a) { c.mixer = new THREE.AnimationMixer(fbx); c.mixer.clipAction(a).play(); }
-      fbx.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    const fail = () => { c.state = 'failed'; console.error('CREW FAILED', key); showToast('Could not load ' + key.toUpperCase() + ' - press F12 to see why'); };
+    const show = (body, sitClip) => {
+      const h = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3()).y;
+      body.scale.setScalar(1.8 / (h || 180));
+      body.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+      c.mixer = new THREE.AnimationMixer(body);
+      c.clips.stand = body.animations && body.animations[0];
+      if (sitClip) c.clips.sit = sitClip;
       c.holder.remove(c.stand);
-      c.holder.add(fbx);
+      c.holder.add(body);
       c.state = 'ready';
       showToast(key.toUpperCase() + ' ready');
+      if (g.selectedCrew === key) applyPose();
     };
-    // the body (full model with the skin)
-    const loadBody = (clip) => fbxLoader.load(REPO_RAW + info.idle, (fbx) => show(fbx, clip), undefined, (e) => fail(info.idle));
-    if (info.sit) {
-      fbxLoader.load(REPO_RAW + info.sit, (fbx) => {
-        if (hasMesh(fbx)) show(fbx);
-        else { console.log('sit file has no body (animation only) - playing it on the full model'); loadBody(fbx.animations && fbx.animations[0]); }
-      }, undefined, () => loadBody(null));
-    } else loadBody(null);
+    // body: small models/<name>.glb first (made with compress.html), else the big FBX
+    loadFirst(['models/' + key + '.glb', info.idle], (body) => {
+      if (!info.sit && key !== 'david') { show(body, null); return; }
+      loadFirst(['models/' + key + '_sit.glb', info.sit].filter(Boolean), (p) => show(body, p.animations && p.animations[0]), () => show(body, null));
+    }, fail);
   }
   window.rebuildShowroom = function () {
     scene.remove(playerCar);
@@ -478,11 +545,62 @@
     const order = [g.selectedCrew].concat(['david', 'remy', 'michelle'].filter((k) => k !== g.selectedCrew));
     order.forEach((k, i) => {
       const c = getCrew(k);
-      c.holder.position.set(spots[i][0], 0, spots[i][1]);
+      c.home.set(spots[i][0], 0, spots[i][1]);
+      c.cur = null;
+      c.holder.position.copy(c.home);
+      c.holder.quaternion.identity();
       safehouseCrew.add(c.holder);
     });
-    loadCrew(g.selectedCrew); // only the chosen character downloads (the files are 20-50 MB each)
+    loadCrew(g.selectedCrew); // only the chosen character downloads
+    applyPose();
   };
+
+  /* David sits on the bonnet: follows the car, faces the way the car faces */
+  const sitRef = { car: null, d: null, c: null, L: 1, minY: 0, n: 0 };
+  function sitCalc() {
+    if (!playerCar) return false;
+    if (sitRef.car === playerCar && sitRef.d) return true;
+    if (sitRef.car === playerCar && (++sitRef.n % 40)) return false;
+    sitRef.car = playerCar;
+    const head = playerCar.getObjectByName('headlights');
+    if (!head) return false;
+    playerCar.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(playerCar);
+    const cW = box.getCenter(new THREE.Vector3()), hW = new THREE.Vector3();
+    head.getWorldPosition(hW);
+    const cL = playerCar.worldToLocal(cW.clone()), hL = playerCar.worldToLocal(hW.clone());
+    const d = hL.clone().sub(cL); d.y = 0;
+    const L = d.length();
+    if (L < 0.01) return false;
+    sitRef.d = d.normalize(); sitRef.c = cL; sitRef.L = L; sitRef.minY = box.min.y;
+    return true;
+  }
+  function tickSit() {
+    const c = crewCache[g.selectedCrew];
+    if (!c || c.cur !== 'sit' || !sitCalc()) return;
+    const local = sitRef.c.clone().addScaledVector(sitRef.d, sitRef.L * SIT.fwd);
+    local.x += -sitRef.d.z * SIT.side; local.z += sitRef.d.x * SIT.side;
+    const p = playerCar.localToWorld(local);
+    p.y = sitRef.minY + SIT.up;
+    safehouseCrew.worldToLocal(p);
+    c.holder.position.copy(p);
+    const dW = sitRef.d.clone().transformDirection(playerCar.matrixWorld);
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(dW.x, dW.z));
+    c.holder.quaternion.copy(safehouseCrew.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(q));
+  }
+  /* nudge keys while in the garage: [ ] = along the car, ; ' = height, , . = sideways */
+  window.addEventListener('keydown', (e) => {
+    if (pose !== 'sit' || $('garage-ui').classList.contains('hidden')) return;
+    const k = { BracketLeft: ['fwd', -1], BracketRight: ['fwd', 1], Semicolon: ['up', -1], Quote: ['up', 1], Comma: ['side', -1], Period: ['side', 1] }[e.code];
+    if (!k) return;
+    SIT[k[0]] = Math.round((SIT[k[0]] + k[1] * 0.05) * 100) / 100;
+    showToast('SIT  along ' + SIT.fwd + '  up ' + SIT.up + '  side ' + SIT.side);
+  });
+  document.querySelectorAll('.pose-btn').forEach((b) => b.addEventListener('click', () => {
+    pose = b.dataset.pose;
+    document.querySelectorAll('.pose-btn').forEach((x) => x.classList.toggle('active', x === b));
+    applyPose();
+  }));
 
   /* ======================= PER-FRAME: HUD bars + crew animation ======================= */
   let last = performance.now();
@@ -491,6 +609,7 @@
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     Object.keys(crewCache).forEach((k) => { if (crewCache[k].mixer) crewCache[k].mixer.update(dt); });
+    tickSit();
     prev();
     const rpm = $('hud-rpm-fill'), nit = $('hud-nitro-fill');
     if (rpm) {
