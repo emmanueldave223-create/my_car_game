@@ -145,3 +145,14 @@
   const prev = window.loop;
   window.loop = function () { tick(); prev(); };
 })();
+
+/* ---- loads patch6.js (the blue UI merge + crew fix) right after this file ---- */
+(function () {
+  if (document.readyState === 'loading') {
+    document.write('<script src="patch6.js"><\/script>');
+  } else {
+    const s = document.createElement('script');
+    s.src = 'patch6.js';
+    document.body.appendChild(s);
+  }
+})();
